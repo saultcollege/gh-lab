@@ -1,0 +1,20 @@
+{
+  "name": "gh-lab",
+
+  "image": "mcr.microsoft.com/devcontainers/python:3.14-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainer-community/devcontainer-features/astral.sh-uv:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ]
+    }
+  },
+
+  "remoteUser": "vscode"
+}

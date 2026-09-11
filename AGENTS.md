@@ -16,6 +16,17 @@ Before making significant changes, consult the relevant documentation:
 
 Follow the architecture documented in `docs/architecture.md`. Do not introduce a substantially different architectural pattern without explaining why.
 
+## Development environment
+
+The repository is intended to be developed inside the included VS Code
+devcontainer.
+
+Agents should assume commands are being run from within the devcontainer
+unless explicitly told otherwise.
+
+Do not modify the devcontainer to provide Docker daemon or host Docker socket
+access unless a task specifically requires Docker.
+
 ## Working practices
 
 * Inspect the existing implementation before making changes.
