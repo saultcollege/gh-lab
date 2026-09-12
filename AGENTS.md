@@ -34,14 +34,16 @@ access unless a task specifically requires Docker.
 * Do not make unrelated refactors unless they are necessary for the task.
 * Prefer simple solutions over unnecessary abstractions.
 * Add or update tests when behaviour changes.
+* Use standard Python documentation conventions and ensure docstrings and code comments are up to date.
 * Do not add production dependencies unless they are necessary.
-* Build core functionality around pure, side-effect-free functions that return plain data; where side-effects are required, keep effectful functions as simple as possible and delegate logic and calculation to pure functions.
+* Build core functionality around pure, side-effect-free functions that return plain data (use dataclasses where appropriate)
+* Where side-effects are required, keep effectful functions as simple as possible and delegate logic and calculation to pure functions.
 
 ## Validation
 
-Before considering implementation work complete:
+Before considering implementation work complete,
 
-1. Run the project's tests.
+1. Run the project's tests
 2. Run the configured linting and formatting checks.
 3. Review the resulting diff for unrelated changes.
 4. Report any tests or checks that could not be run or did not pass.

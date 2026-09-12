@@ -9,7 +9,7 @@
 
 ## Setup
 
-Project setup instructions will be added once the Python project is initialized.
+    uv sync
 
 ## Development environment
 
@@ -23,18 +23,22 @@ After the container is created, project dependencies are synchronized with:
 
     uv sync
 
-## Running
+## Run
 
-Commands for running `gh lab` during development will be documented here.
+The project can be run with:
 
-## Tests
+    uv run gh-lab
 
-The project will use an automated test suite.
+## Test
 
-The canonical test command will be documented here once the testing framework is configured.
+    uv run pytest
 
-## Code quality
+## Lint
 
-Linting, formatting, and other automated checks will be documented here as they are added.
+    uv run ruff check .
+
+## Format
+
+    uv run format --check .
 
 The commands listed in this document should match the checks run by CI.
