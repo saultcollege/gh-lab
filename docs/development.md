@@ -67,15 +67,29 @@ useful for checking behaviour on the oldest supported Python:
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on pull requests and on pushes to `main`, in two
-jobs:
+`.github/workflows/ci.yml` runs on pull requests and on pushes to `main`, in
+three jobs:
 
-* **checks** — `uv sync --locked`, then the lint, format and test commands
+* **checks** — asserts the `gh-lab` entry point is mode `100755` in the Git
+  index, then runs `uv sync --locked` and the lint, format and test commands
   listed above.
-* **extension** — installs the extension with `gh extension install .` on both
-  the oldest and newest supported Python versions and asserts that
+* **extension** (Linux) — installs the extension with `gh extension install .`
+  on both the oldest and newest supported Python versions and asserts that
   `gh lab --help`, `gh lab --version`, bare `gh lab` and `gh lab setup-check`
   behave correctly.
+* **platforms** (macOS, Windows) — installs the extension and runs
+  `gh lab --version` and `gh lab --help`.
+
+Because pull requests are checked before merging, CI is the gate that protects
+users from a broken release. `main` is protected: changes land through pull
+requests rather than direct pushes.
+
+The **platforms** job is deliberately minimal. Exit codes and usage text are
+pure Python and already covered on Linux; what differs across operating systems
+is only whether the `gh-lab` shim can resolve its own directory, find an
+interpreter, and exec the package, all of which `gh lab --version` exercises.
+Students run `gh lab` inside Linux devcontainers, so macOS and Windows get a
+proof of life rather than full coverage.
 
 The commands listed in this document should match the checks run by CI.
 

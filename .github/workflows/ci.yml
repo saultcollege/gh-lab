@@ -21,6 +21,14 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Entry point is executable in the index
+        run: |
+          mode=$(git ls-files -s gh-lab | cut -d' ' -f1)
+          if [ "$mode" != "100755" ]; then
+            echo "gh-lab must be mode 100755 in git, found $mode" >&2
+            exit 1
+          fi
+
       - name: Sync dependencies
         run: uv sync --locked
 
@@ -51,9 +59,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Entry point is executable
-        run: test -x ./gh-lab
 
       - name: Install the extension from this checkout
         run: gh extension install .
@@ -114,3 +119,38 @@ jobs:
 
       - name: Remove the extension
         run: gh extension remove lab
+
+  platforms:
+    # Students run gh lab inside Linux devcontainers, so this is a proof of life
+    # rather than a full smoke test: exit codes and usage text are pure Python
+    # and already covered above. What is OS-dependent is only whether the shim
+    # can resolve its own directory, find an interpreter, and exec the package,
+    # which `gh lab --version` exercises end to end.
+    name: Install check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # The default shell on Windows runners is PowerShell; the shim and these
+        # steps are bash.
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_NO_EXTENSION_UPDATE_NOTIFIER: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the extension from this checkout
+        run: gh extension install .
+
+      - name: gh lab runs
+        run: |
+          gh lab --version
+          gh lab --help

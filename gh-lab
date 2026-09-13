@@ -50,13 +50,19 @@ python_is_supported() {
 # virtualenv (present only in a working checkout), then whatever is on PATH.
 # Each is probed with the interpreter itself rather than by parsing a version
 # string, so an unsuitable candidate falls through to the next one.
+#
+# `py` is the Windows Python launcher: python.org installers ship python.exe and
+# py.exe but often no python3, so without it Windows would reach an interpreter
+# only by falling through to the bare `python` candidate.
 find_python() {
   local candidate
   for candidate in \
     "${GH_LAB_PYTHON:-}" \
     "$extension_dir/.venv/bin/python" \
+    "$extension_dir/.venv/Scripts/python.exe" \
     python3 \
-    python; do
+    python \
+    py; do
     [ -n "$candidate" ] || continue
     command -v "$candidate" >/dev/null 2>&1 || continue
     python_is_supported "$candidate" || continue

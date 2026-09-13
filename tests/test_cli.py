@@ -68,6 +68,10 @@ def test_version_matches_pyproject(pyproject):
     assert gh_lab.__version__ == pyproject["project"]["version"]
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="the executable bit is not meaningful on Windows; CI asserts the git index mode instead",
+)
 def test_extension_shim_is_executable():
     """gh cannot run a script extension whose entry point is not executable."""
     assert SHIM.is_file()
