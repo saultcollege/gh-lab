@@ -15,7 +15,12 @@
       "extensions": [
         "ms-python.python",
         "charliermarsh.ruff"
-      ]
+      ],
+      "settings": {
+        "terminal.integrated.env.linux": {
+          "PATH": "${containerWorkspaceFolder}/.local/bin:${env:PATH}"
+        }
+      }
     }
   },
 
