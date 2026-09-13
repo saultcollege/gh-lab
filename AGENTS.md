@@ -35,6 +35,7 @@ access unless a task specifically requires Docker.
 * Prefer simple solutions over unnecessary abstractions.
 * Add or update tests when behaviour changes.
 * Use standard Python documentation conventions and ensure docstrings and code comments are up to date.
+* Keep usage documentation up to date with any changes to the CLI interface.
 * Do not add production dependencies unless they are necessary.
 * Build core functionality around pure, side-effect-free functions that return plain data (use dataclasses where appropriate)
 * Where side-effects are required, keep effectful functions as simple as possible and delegate logic and calculation to pure functions.
