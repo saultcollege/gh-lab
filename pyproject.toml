@@ -1,19 +1,28 @@
 [project]
 name = "gh-lab"
 version = "0.1.0"
-description = "Add your description here"
+description = "A GitHub CLI extension for managing and validating programming lab repositories."
 readme = "README.md"
 authors = [
     { name = "Rodney Martin", email = "rodney.martin@saultcollege.ca" }
 ]
-requires-python = ">=3.14"
-dependencies = [
+# The extension runs against whatever Python is already on a user's machine, so
+# keep this floor as low as the code allows. It must match MIN_PYTHON_MINOR in
+# the `gh-lab` shim; a test enforces that.
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+gh-lab = "gh_lab.cli:main"
+
+[dependency-groups]
+dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.7",
 ]
 
-[project.scripts]
-gh-lab = "gh_lab:main"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]

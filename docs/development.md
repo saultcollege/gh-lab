@@ -2,7 +2,7 @@
 
 ## Requirements
 
-* Python
+* Python (3.11 or newer; the devcontainer uses 3.14)
 * `uv`
 * Git
 * GitHub CLI (`gh`)
@@ -27,7 +27,31 @@ After the container is created, project dependencies are synchronized with:
 
 The project can be run with:
 
-    uv run gh-lab
+    uv run gh-lab --help
+
+## Run as a gh extension
+
+To exercise the extension the way a user would, install it from the working
+checkout:
+
+    gh extension install .
+
+`gh` installs a local checkout as a symlink, so edits to the working tree take
+effect immediately with no reinstall. Run it as:
+
+    gh lab --help
+
+and remove it with:
+
+    gh extension remove lab
+
+Only one extension named `lab` can be installed at a time, so remove a local
+install before installing the published one, and vice versa.
+
+Set `GH_LAB_PYTHON` to run the extension under a specific interpreter, which is
+useful for checking behaviour on the oldest supported Python:
+
+    GH_LAB_PYTHON=/usr/bin/python3 gh lab --help
 
 ## Test
 
@@ -39,6 +63,41 @@ The project can be run with:
 
 ## Format
 
-    uv run format --check .
+    uv run ruff format --check .
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on pull requests and on pushes to `main`, in two
+jobs:
+
+* **checks** — `uv sync --locked`, then the lint, format and test commands
+  listed above.
+* **extension** — installs the extension with `gh extension install .` on both
+  the oldest and newest supported Python versions and asserts that
+  `gh lab --help`, `gh lab --version`, bare `gh lab` and `gh lab setup-check`
+  behave correctly.
 
 The commands listed in this document should match the checks run by CI.
+
+## Distribution
+
+`gh lab` is a *script* extension: `gh` clones this repository and runs the
+`gh-lab` file at its root. Two consequences matter when making changes:
+
+* **`gh extension upgrade lab` is a `git pull` of the default branch.** It does
+  not consult tags or GitHub Releases, so every commit merged to `main` reaches
+  every user immediately. Merge to `main` only when users should receive the
+  change.
+* **The runtime must stay dependency-free.** Nothing is installed at extension
+  install time; the `gh-lab` shim only puts `src/` on `PYTHONPATH`. Standard
+  library only, so keep new packages in the `dev` dependency group.
+
+The `gh-lab` shim must keep mode `100755` in Git, or `gh` cannot execute it.
+Check with `git ls-files -s gh-lab`; repair with `git update-index --chmod=+x gh-lab`.
+
+Tag versions with `git tag -a v0.1.0`, keeping the tag in step with
+`__version__` in `src/gh_lab/__init__.py` and `version` in `pyproject.toml`.
+GitHub Releases are optional, but **never attach assets whose names end in a
+platform suffix** such as `linux-amd64` or `darwin-arm64`: `gh` treats those as
+the signature of a precompiled binary extension and will stop cloning the
+repository, breaking installation.

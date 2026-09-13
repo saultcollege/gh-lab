@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# gh-lab -- GitHub CLI extension entry point.
+#
+# gh runs this file for `gh lab <args>`. It locates a suitable Python
+# interpreter and runs the `gh_lab` package from this repository's `src/`
+# directory. The package is stdlib-only, so nothing is installed at runtime.
+#
+# Keep this script free of application logic: it exists only to find an
+# interpreter and hand off to Python.
+
+set -euo pipefail
+
+MIN_PYTHON_MAJOR=3
+MIN_PYTHON_MINOR=11
+
+die() {
+  printf 'gh lab: %s\n' "$1" >&2
+  exit 1
+}
+
+# Resolve the real directory holding this script. `gh extension install .`
+# installs a local checkout as a symlink, so $0 may be a symlink, or a chain of
+# them. `readlink -f` and `realpath` are not available everywhere (notably older
+# macOS), so walk the chain by hand.
+resolve_script_dir() {
+  local source=$1 dir
+  while [ -L "$source" ]; do
+    dir=$(cd -P "$(dirname "$source")" && pwd)
+    source=$(readlink "$source")
+    case $source in
+      /*) ;;
+      *) source="$dir/$source" ;;
+    esac
+  done
+  cd -P "$(dirname "$source")" && pwd
+}
+
+extension_dir=$(resolve_script_dir "${BASH_SOURCE[0]:-$0}")
+
+[ -d "$extension_dir/src/gh_lab" ] ||
+  die "could not find the gh_lab package under $extension_dir/src"
+
+python_is_supported() {
+  "$1" -c "import sys; sys.exit(0 if sys.version_info >= ($MIN_PYTHON_MAJOR, $MIN_PYTHON_MINOR) else 1)" \
+    >/dev/null 2>&1
+}
+
+# Candidates in preference order: an explicit override, the development
+# virtualenv (present only in a working checkout), then whatever is on PATH.
+# Each is probed with the interpreter itself rather than by parsing a version
+# string, so an unsuitable candidate falls through to the next one.
+find_python() {
+  local candidate
+  for candidate in \
+    "${GH_LAB_PYTHON:-}" \
+    "$extension_dir/.venv/bin/python" \
+    python3 \
+    python; do
+    [ -n "$candidate" ] || continue
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    python_is_supported "$candidate" || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+if ! python=$(find_python); then
+  die "Python ${MIN_PYTHON_MAJOR}.${MIN_PYTHON_MINOR} or newer is required but was not found.
+       Install Python (https://www.python.org/downloads/) or set GH_LAB_PYTHON to the
+       interpreter to use, then try again."
+fi
+
+export PYTHONPATH="$extension_dir/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$python" -m gh_lab "$@"
