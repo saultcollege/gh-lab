@@ -11,9 +11,12 @@ TIMEOUT_SECONDS = 30
 
 REPO_FIELDS = ("name", "owner", "isPrivate", "templateRepository")
 
+# Course configuration changes rarely, and this is fetched on every invocation.
+FILE_CACHE_DURATION = "1h"
 
-def _run_json(args: Sequence[str]) -> Any:
-    """Run a gh command expected to emit JSON and return the parsed result."""
+
+def _run_text(args: Sequence[str]) -> str:
+    """Run a gh command and return its standard output."""
     try:
         completed = subprocess.run(
             ["gh", *args],
@@ -37,8 +40,13 @@ def _run_json(args: Sequence[str]) -> Any:
         )
         raise AdapterError(detail)
 
+    return completed.stdout
+
+
+def _run_json(args: Sequence[str]) -> Any:
+    """Run a gh command expected to emit JSON and return the parsed result."""
     try:
-        return json.loads(completed.stdout)
+        return json.loads(_run_text(args))
     except json.JSONDecodeError as error:
         raise AdapterError(
             "the GitHub CLI (gh) returned output that is not JSON"
@@ -68,6 +76,9 @@ def list_collaborators(owner: str, repo: str) -> tuple[str, ...]:
     """
     # A lab repository has a handful of collaborators at most, so a single page
     # is sufficient and avoids the subtleties of how gh merges paginated output.
+    #
+    # Deliberately not cached: a student who has just invited their instructor
+    # must see the result of that on the next run.
     result = _run_json(["api", f"repos/{owner}/{repo}/collaborators?per_page=100"])
 
     if not isinstance(result, list):
@@ -77,4 +88,30 @@ def list_collaborators(owner: str, repo: str) -> tuple[str, ...]:
         entry["login"]
         for entry in result
         if isinstance(entry, dict) and isinstance(entry.get("login"), str)
+    )
+
+
+def fetch_repo_file(owner: str, repo: str, path: str, ref: str | None = None) -> str:
+    """Return the contents of a file in a repository.
+
+    Reads through ``gh``, so it uses whatever authentication the environment
+    already provides and works for private repositories the user can see.
+
+    The raw media type returns the file itself rather than a JSON envelope with
+    base64 content. The response is cached briefly because course configuration
+    changes rarely and this runs on every invocation.
+    """
+    endpoint = f"repos/{owner}/{repo}/contents/{path}"
+    if ref:
+        endpoint = f"{endpoint}?ref={ref}"
+
+    return _run_text(
+        [
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw+json",
+            "--cache",
+            FILE_CACHE_DURATION,
+            endpoint,
+        ]
     )

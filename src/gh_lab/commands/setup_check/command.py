@@ -10,19 +10,18 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
 
-from gh_lab.adapters import AdapterError, git, github_cli, http
+from gh_lab.adapters import AdapterError, git, github_cli
 from gh_lab.commands.setup_check.config import (
     LAB_CONFIG_PATH,
     ConfigError,
     CourseConfig,
+    CourseConfigRef,
     LabConfig,
+    normalise_repo_ref,
     parse_course_config,
     parse_lab_config,
 )
-
-GITHUB_HOST = "github.com"
 
 
 class Status(StrEnum):
@@ -102,56 +101,6 @@ class RepoFacts:
     unavailable: Mapping[str, str] = field(default_factory=dict)
 
 
-def normalise_repo_ref(value: Any) -> str | None:
-    """Reduce a repository reference to a lowercase ``owner/name``.
-
-    Accepts the URL form used in ``.lab/config.json``
-    (``https://github.com/org/repo``, with or without ``.git``), the
-    ``owner/name`` shorthand, and the object returned by
-    ``gh repo view --json templateRepository``.
-
-    Returns:
-        The normalised reference, or ``None`` if ``value`` does not identify a
-        repository.
-    """
-    if isinstance(value, dict):
-        owner = value.get("owner")
-        if isinstance(owner, dict):
-            owner = owner.get("login")
-        name = value.get("name")
-
-        if isinstance(owner, str) and isinstance(name, str) and owner and name:
-            return f"{owner}/{name}".casefold()
-
-        return None
-
-    if not isinstance(value, str):
-        return None
-
-    text = value.strip().rstrip("/")
-    if not text:
-        return None
-
-    # Strip any scheme and host, leaving the path.
-    for separator in ("://", "@"):
-        if separator in text:
-            text = text.split(separator, 1)[1]
-
-    text = text.replace(":", "/")
-
-    if text.casefold().startswith(f"{GITHUB_HOST}/"):
-        text = text[len(GITHUB_HOST) + 1 :]
-
-    if text.casefold().endswith(".git"):
-        text = text[: -len(".git")]
-
-    parts = [part for part in text.split("/") if part]
-    if len(parts) < 2:
-        return None
-
-    return f"{parts[-2]}/{parts[-1]}".casefold()
-
-
 def in_github_actions(env: Mapping[str, str] | None = None) -> bool:
     """Whether the command is running inside a GitHub Actions workflow."""
     env = os.environ if env is None else env
@@ -188,8 +137,17 @@ def _skipped(check_id: str, title: str, reason: str) -> Check:
 
 
 def _course_reason(error: str | None) -> str:
-    """Explain why a check depending on the course configuration could not run."""
-    base = "the course configuration could not be read"
+    """Explain why the faculty check could not run.
+
+    GitHub answers 404 for a repository you cannot see as well as for one that
+    does not exist, so a failure cannot tell the two apart. Name both, since the
+    student can act on one of them and only their instructor can act on the other.
+    """
+    base = (
+        "the course configuration could not be read. Either you are not yet a "
+        "member of the course organization, or the course configuration has "
+        "moved — ask your instructor if this does not resolve itself"
+    )
 
     return f"{base} ({error})" if error else base
 
@@ -217,18 +175,9 @@ def _check_repo_name(lab_config: LabConfig, facts: RepoFacts) -> Check:
     )
 
 
-def _check_branch(
-    lab: str,
-    course_config: CourseConfig | None,
-    facts: RepoFacts,
-    course_config_error: str | None = None,
-) -> Check:
+def _check_branch(lab: str, lab_config: LabConfig, facts: RepoFacts) -> Check:
     title = "Branch"
-
-    if course_config is None:
-        return _skipped("branch", title, _course_reason(course_config_error))
-
-    expected = course_config.branch_pattern.format(lab=lab)
+    expected = lab_config.branch_pattern.format(lab=lab)
 
     if facts.current_branch is None:
         return _skipped(
@@ -396,23 +345,23 @@ def _check_faculty(
     )
 
 
-def _check_not_course_org(
-    course_config: CourseConfig | None,
-    lab_config: LabConfig,
-    facts: RepoFacts,
-    course_config_error: str | None = None,
-) -> Check:
+def _check_not_course_org(lab_config: LabConfig, facts: RepoFacts) -> Check:
     title = "Owned by you, not the course organization"
+    course_org = lab_config.course_org
 
-    if course_config is None:
-        return _skipped("not-course-org", title, _course_reason(course_config_error))
+    if course_org is None:
+        return _skipped(
+            "not-course-org",
+            title,
+            f"{LAB_CONFIG_PATH} does not name a valid 'template-repo'",
+        )
 
     if facts.owner is None:
         return _skipped(
             "not-course-org", title, facts.unavailable.get("repo", "unknown")
         )
 
-    if facts.owner.casefold() != course_config.course_org.casefold():
+    if facts.owner.casefold() != course_org.casefold():
         return Check(
             id="not-course-org",
             title=title,
@@ -461,16 +410,17 @@ def evaluate(
     Args:
         lab: The lab being checked.
         lab_config: Contents of ``.lab/config.json``.
-        course_config: The course configuration, or ``None`` if unavailable, in
-            which case the checks that depend on it are skipped.
+        course_config: The course configuration, or ``None`` if unavailable.
+            Only the faculty check depends on it, so everything else still runs.
         facts: What is known about the repository.
         in_actions: Whether this is running in GitHub Actions, where the faculty
-            check is omitted entirely because the available token cannot list
-            collaborators.
+            check is omitted entirely: the available token can neither list
+            collaborators nor read the course organization's private repository.
+        course_config_error: Why the course configuration was unavailable.
     """
     checks = [
         _check_repo_name(lab_config, facts),
-        _check_branch(lab, course_config, facts, course_config_error),
+        _check_branch(lab, lab_config, facts),
         _check_template(lab_config, facts),
         _check_private(facts),
     ]
@@ -478,9 +428,7 @@ def evaluate(
     if not in_actions:
         checks.append(_check_faculty(course_config, facts, course_config_error))
 
-    checks.append(
-        _check_not_course_org(course_config, lab_config, facts, course_config_error)
-    )
+    checks.append(_check_not_course_org(lab_config, facts))
 
     return SetupCheckReport(
         checks=tuple(checks),
@@ -521,19 +469,31 @@ def load_lab_config() -> LabConfig:
     return parse_lab_config(data)
 
 
-def load_course_config(url: str) -> tuple[CourseConfig | None, str | None]:
-    """Fetch and parse the course configuration.
+def load_course_config(
+    reference: CourseConfigRef,
+) -> tuple[CourseConfig | None, str | None]:
+    """Fetch and parse the course configuration from its private repository.
+
+    Reads through the GitHub CLI, so it uses the authentication the environment
+    already provides rather than asking the student to arrange any.
 
     Returns:
         The configuration, or ``(None, reason)`` if it could not be obtained.
     """
     try:
-        data = http.fetch_json(url)
+        raw = github_cli.fetch_repo_file(
+            reference.owner, reference.repo, reference.path, reference.ref
+        )
     except AdapterError as error:
         return None, str(error)
 
     try:
-        return parse_course_config(data, source=url), None
+        data = json.loads(raw)
+    except json.JSONDecodeError as error:
+        return None, f"{reference} is not valid JSON: {error}"
+
+    try:
+        return parse_course_config(data, source=str(reference)), None
     except ConfigError as error:
         return None, str(error)
 
@@ -618,9 +578,18 @@ def run(
         )
 
     actions = in_github_actions(env)
-    course_config, course_config_error = load_course_config(
-        lab_config.course_config_url
-    )
+
+    # A workflow token cannot read a private repository in the course
+    # organization, so do not make a request that is bound to fail. The faculty
+    # check, the only thing the course configuration feeds, is skipped in
+    # Actions anyway.
+    course_config: CourseConfig | None = None
+    course_config_error: str | None = None
+    if not actions:
+        course_config, course_config_error = load_course_config(
+            lab_config.course_config
+        )
+
     facts = gather_facts(in_actions=actions, env=env)
 
     return evaluate(

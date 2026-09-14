@@ -4,12 +4,9 @@
 
 * **`.lab/config.json`**, committed in the root of a lab repository and written
   by the lab template. It describes one lab.
-* **the course configuration**, served from a URL that `.lab/config.json` names.
-  It describes the course and is shared by every lab in it.
-
-Splitting them this way means details that change during a term — who is
-teaching, what the branch convention is — live in one place the course controls,
-rather than being baked into every template.
+* **the course configuration**, held in a private repository owned by the course
+  organization. It lists the faculty for the course and is shared by every lab
+  in it.
 
 ## `.lab/config.json`
 
@@ -17,7 +14,8 @@ rather than being baked into every template.
 {
   "repo-name": "csd110-lab-1",
   "template-repo": "https://github.com/saultcollege-csd110/lab-1-template",
-  "course-config-url": "https://saultcollege-csd110.github.io/course-config.json",
+  "course-config": "saultcollege-csd110/course-config/26f.json",
+  "branch-pattern": "lab-{lab}",
   "lab": "1"
 }
 ```
@@ -26,8 +24,12 @@ rather than being baked into every template.
 | --- | --- | --- |
 | `repo-name` | yes | The name a student's repository must have. |
 | `template-repo` | yes | The template the repository must be created from. A `https://github.com/owner/name` URL or an `owner/name` shorthand. |
-| `course-config-url` | yes | Where to fetch the course configuration. Must be `http` or `https`. |
+| `course-config` | yes | Where the course configuration lives. See below. |
+| `branch-pattern` | no | The expected branch name, with `{lab}` replaced by the lab. Defaults to `lab-{lab}`. |
 | `lab` | no | Which lab this repository is for. See below. |
+
+There is no `course-org` property. The course organization is, by definition,
+whoever owns `template-repo`, so it is derived from it rather than stated twice.
 
 ### `lab`, and the two lab styles
 
@@ -52,12 +54,35 @@ $ gh lab setup-check 2
 If `lab` is set and the student also passes one, the command line wins. If
 neither is present, the command explains that it needs one.
 
-## Course configuration
+### `course-config`
+
+Three spellings are accepted, because whoever writes the template is as likely to
+paste a link from the browser as to type the short form:
+
+```jsonc
+"course-config": "saultcollege-csd110/course-config/26f.json"
+"course-config": "saultcollege-csd110/course-config/26f.json@main"
+"course-config": "https://github.com/saultcollege-csd110/course-config/blob/main/26f.json"
+```
+
+The short form is `owner/repo/path`, where everything after the repository name
+is the path to the file. An optional `@ref` pins a branch, tag, or commit;
+without it the repository's default branch is used. A ref containing a `/`
+cannot be written in the short form — use the URL form for those.
+
+### `branch-pattern`
+
+`{lab}` is substituted with the lab. With the default `lab-{lab}`,
+`gh lab setup-check 2` expects a branch named `lab-2`. A course that numbers work
+differently can set, say, `week-{lab}` or `assignment-{lab}`.
+
+It lives here rather than in the course configuration deliberately — see
+[Why the split is where it is](#why-the-split-is-where-it-is).
+
+## The course configuration
 
 ```json
 {
-  "course-org": "saultcollege-csd110",
-  "branch-pattern": "lab-{lab}",
   "faculty": [
     { "name": "Bob Bob", "github": "bobber24" }
   ]
@@ -66,16 +91,21 @@ neither is present, the command explains that it needs one.
 
 | Property | Required | Meaning |
 | --- | --- | --- |
-| `course-org` | yes | The GitHub organization that owns the lab templates. Student repositories must **not** be owned by it. |
 | `faculty` | yes | Who must be a collaborator on every student repository. May be empty. |
-| `branch-pattern` | no | The expected branch name, with `{lab}` replaced by the lab. Defaults to `lab-{lab}`. |
+
+The file may live anywhere in a repository the students can read; point
+`course-config` at it. A private repository in the course organization works,
+provided students are members of that organization.
+
+Unrecognised properties are ignored, so a file still carrying a `course-org` or
+`branch-pattern` from an earlier version of this tool will not break.
 
 ### `faculty`
 
 Each entry is an object. Only `github` is used for checking; `name` is optional
 and only makes messages friendlier — `Bob Bob (@bobber24)` instead of
-`@bobber24`. Any other properties are ignored, so the same file can carry
-contact details used elsewhere.
+`@bobber24`. Any other properties are ignored, so the same file can carry contact
+details used elsewhere.
 
 ```json
 { "name": "Bob Bob", "github": "bobber24", "email": "bob@example.com" }
@@ -85,26 +115,44 @@ An entry without a `github` property is an error, and the message names its
 position in the array, because the person who has to fix the file is the one who
 wrote it.
 
-### `branch-pattern`
+## Why the split is where it is
 
-`{lab}` is substituted with the lab. With the default `lab-{lab}`,
-`gh lab setup-check 2` expects a branch named `lab-2`. A course that numbers work
-differently can set, say, `week-{lab}` or `assignment-{lab}` without needing a
-new release of `gh-lab`.
+Only the faculty list lives in the course configuration. Everything else is
+stated in `.lab/config.json` or derived from it. That is not arbitrary.
+
+`setup-check` has to run in two places: a student's devcontainer or Codespace,
+and a GitHub Actions workflow on their pull request. In the devcontainer it uses
+the student's existing GitHub authentication, so it can read a private repository
+in the course organization. **A workflow cannot.** The token available to a
+workflow is scoped to the repository it runs in; reading another repository would
+require a GitHub App or a personal access token stored in the student's own
+repository, and neither is acceptable for student-owned repos.
+
+So anything kept in the course configuration is unavailable to the check when it
+runs in Actions. The faculty check is already skipped there for a separate reason
+— listing collaborators needs write access the workflow token does not have — so
+putting the faculty list there costs nothing. Putting `branch-pattern` there
+would have cost the branch check, which is the one most worth having on a pull
+request.
+
+`branch-pattern` therefore lives in exactly one place. If the course
+configuration could override it, a student would see one expected branch locally
+and a different one in CI, which is worse than not being able to change it
+centrally.
 
 ## What `setup-check` verifies
 
-| Check | Source |
+| Check | Needs |
 | --- | --- |
 | Repository name matches `repo-name` | GitHub |
 | Current branch matches `branch-pattern` | git, or the workflow environment |
 | Repository was generated from `template-repo` | GitHub |
 | Repository is private | GitHub |
-| Every faculty member is a collaborator | GitHub |
-| Repository is not owned by `course-org` | GitHub |
+| Every faculty member is a collaborator | GitHub, and the course configuration |
+| Repository is not owned by the course organization | GitHub |
 
-A check that cannot run — because the student is not signed in to the GitHub
-CLI, or the course configuration is unreachable — is reported as **not checked**
+A check that cannot run — because the student is not signed in to the GitHub CLI,
+or the course configuration is unreachable — is reported as **not checked**
 rather than as a failure, and does not fail the command.
 
 ### In GitHub Actions
@@ -113,18 +161,19 @@ rather than as a failure, and does not fail the command.
 
 * The branch is read from `GITHUB_HEAD_REF` (on pull requests) or
   `GITHUB_REF_NAME` (on pushes), because the checkout is not on a branch.
-* **The faculty check is skipped entirely.** The token available to a workflow
-  cannot list collaborators. Faculty discover a missing invitation by being
-  unable to open the repository when they come to review it.
+* **The faculty check is skipped entirely**, and the course configuration is not
+  fetched. Faculty discover a missing invitation by being unable to open the
+  repository when they come to review it.
 
-Failures are also emitted as workflow annotations, so they appear inline on the
-student's pull request.
+Every other check behaves exactly as it does locally. Failures are also emitted
+as workflow annotations, so they appear inline on the student's pull request.
 
 ## A caution on trust
 
-Both documents are reachable from the student's own repository: `.lab/config.json`
-is a file they can edit, and it names the URL the course configuration is fetched
-from. A student can therefore make `setup-check` pass by editing them.
+Both documents are reachable from the student's own repository:
+`.lab/config.json` is a file they can edit, and it names where the course
+configuration is fetched from. A student can therefore make `setup-check` pass by
+editing them.
 
 This is fine, because `setup-check` is a self-service tool: its job is to help a
 student find their own mistakes before submitting. **A green result is not

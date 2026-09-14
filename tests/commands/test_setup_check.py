@@ -14,6 +14,7 @@ from gh_lab.commands.setup_check.command import (
 )
 from gh_lab.commands.setup_check.config import (
     CourseConfig,
+    CourseConfigRef,
     Faculty,
     LabConfig,
 )
@@ -21,16 +22,15 @@ from gh_lab.commands.setup_check.config import (
 TEMPLATE_URL = "https://github.com/saultcollege-csd110/lab-1-template"
 TEMPLATE_REF = "saultcollege-csd110/lab-1-template"
 
+CONFIG_REF = CourseConfigRef("saultcollege-csd110", "course-config", "26f.json")
+
 LAB_CONFIG = LabConfig(
     repo_name="csd110-lab-1",
     template_repo=TEMPLATE_URL,
-    course_config_url="https://example.invalid/course-config.json",
+    course_config=CONFIG_REF,
 )
 
-COURSE_CONFIG = CourseConfig(
-    course_org="saultcollege-csd110",
-    faculty=(Faculty(github="bobber24", name="Bob Bob"),),
-)
+COURSE_CONFIG = CourseConfig(faculty=(Faculty(github="bobber24", name="Bob Bob"),))
 
 GOOD_FACTS = RepoFacts(
     name="csd110-lab-1",
@@ -172,15 +172,11 @@ def test_every_failure_explains_itself_and_says_what_to_run():
         assert check.commands, f"{check.id} does not say what to run"
 
 
-def test_branch_name_follows_the_course_pattern():
-    course = CourseConfig(
-        course_org="saultcollege-csd110",
-        faculty=(),
-        branch_pattern="week-{lab}",
-    )
+def test_branch_name_follows_the_configured_pattern():
+    lab_config = dataclasses.replace(LAB_CONFIG, branch_pattern="week-{lab}")
 
     facts = dataclasses.replace(GOOD_FACTS, current_branch="week-05")
-    report = report_for(facts, lab="05", course_config=course)
+    report = report_for(facts, lab="05", lab_config=lab_config)
 
     assert status_of(report, "branch") is Status.PASS
 
@@ -193,7 +189,6 @@ def test_faculty_matching_ignores_case():
 
 def test_multiple_missing_faculty_each_get_a_command():
     course = CourseConfig(
-        course_org="saultcollege-csd110",
         faculty=(
             Faculty(github="bobber24", name="Bob Bob"),
             Faculty(github="alice99"),
@@ -226,16 +221,24 @@ def test_unavailable_information_skips_rather_than_fails():
     assert report.ok
 
 
-def test_missing_course_config_skips_the_checks_that_need_it():
-    report = report_for(GOOD_FACTS, course_config=None, course_config_error="offline")
+def test_an_unreadable_course_config_costs_only_the_faculty_check():
+    """The course config lives in a private repo a workflow cannot read.
 
-    for check_id in ("branch", "faculty", "not-course-org"):
-        check = check_named(report, check_id)
-        assert check.status is Status.SKIPPED
-        assert "offline" in check.detail
+    Everything except the faculty list is stated in or derived from
+    .lab/config.json precisely so that the rest keeps working without it.
+    """
+    report = report_for(GOOD_FACTS, course_config=None, course_config_error="HTTP 404")
 
-    # Checks that do not need it still run.
-    assert status_of(report, "repo-name") is Status.PASS
+    faculty = check_named(report, "faculty")
+    assert faculty.status is Status.SKIPPED
+    assert "HTTP 404" in faculty.detail
+    # It cannot tell "not a member yet" from "moved", so it must name both.
+    assert "member of the course organization" in faculty.detail
+
+    for check_id in ("repo-name", "branch", "template", "private", "not-course-org"):
+        assert status_of(report, check_id) is Status.PASS
+
+    assert report.ok
 
 
 def test_faculty_check_is_omitted_entirely_in_github_actions():
@@ -302,3 +305,39 @@ def test_normalise_repo_ref_accepts_every_form(value):
 @pytest.mark.parametrize("value", [None, "", "   ", "just-a-name", {}, 42])
 def test_normalise_repo_ref_rejects_non_repositories(value):
     assert normalise_repo_ref(value) is None
+
+
+def test_course_config_is_not_fetched_inside_actions(monkeypatch):
+    """A workflow token cannot read the course org's private repository."""
+    from gh_lab.commands.setup_check import command as command_module
+
+    def fail(*args, **kwargs):
+        raise AssertionError("the course configuration must not be fetched in Actions")
+
+    monkeypatch.setattr(command_module, "load_course_config", fail)
+    monkeypatch.setattr(command_module, "load_lab_config", lambda: LAB_CONFIG)
+    monkeypatch.setattr(command_module, "gather_facts", lambda **kwargs: GOOD_FACTS)
+
+    report = command_module.run("1", env={"GITHUB_ACTIONS": "true"})
+
+    assert report.faculty_skipped_in_actions
+    assert not any(check.id == "faculty" for check in report.checks)
+
+
+def test_course_config_is_fetched_outside_actions(monkeypatch):
+    from gh_lab.commands.setup_check import command as command_module
+
+    calls = []
+
+    monkeypatch.setattr(command_module, "load_lab_config", lambda: LAB_CONFIG)
+    monkeypatch.setattr(command_module, "gather_facts", lambda **kwargs: GOOD_FACTS)
+    monkeypatch.setattr(
+        command_module,
+        "load_course_config",
+        lambda reference: (calls.append(reference), (COURSE_CONFIG, None))[1],
+    )
+
+    report = command_module.run("1", env={})
+
+    assert calls == [CONFIG_REF]
+    assert status_of(report, "faculty") is Status.PASS

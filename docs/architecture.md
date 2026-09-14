@@ -81,9 +81,11 @@ Hoisting the lab ahead of the subcommand (`gh lab 2 setup-check`) reads well and
 
 ## External tools
 
-Commands may use Curl (`curl`) Git (`git`) and the GitHub CLI (`gh`) where it provides a straightforward and stable interface.
+Commands may use Git (`git`) and the GitHub CLI (`gh`) where it provides a straightforward and stable interface.
 
 Interactions with such external should be isolated from core decision-making logic where practical so that behaviour can be tested without requiring direct access. These interactions should be implemented behind adapters in the `adapters` package, which can be mocked or stubbed in tests.
+
+**Reach GitHub through `gh`, not over plain HTTP.** `gh` already carries the authentication the environment provides — from the host in a devcontainer, from the platform in a Codespace — so reading a private resource needs nothing of the user. A direct HTTP request would work only for public data and would need a token supplied from somewhere for anything else. An earlier `http` adapter was removed for this reason when the course configuration moved into a private repository.
 
 ## Design principles
 
