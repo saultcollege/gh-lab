@@ -36,6 +36,7 @@ access unless a task specifically requires Docker.
 * Add or update tests when behaviour changes.
 * Use standard Python documentation conventions and ensure docstrings and code comments are up to date.
 * Keep usage documentation up to date with any changes to the CLI interface.
+* Keep the CI workflow up to date with any changes to the CLI interface. `.github/workflows/ci.yml` invokes commands directly, so a stale invocation is not caught by the test suite or by linting, and fails only after the change has been pushed.
 * Do not add production dependencies unless they are necessary.
 * Build core functionality around pure, side-effect-free functions that return plain data (use dataclasses where appropriate)
 * Where side-effects are required, keep effectful functions as simple as possible and delegate logic and calculation to pure functions.
@@ -46,7 +47,8 @@ Before considering implementation work complete,
 
 1. Run the project's tests
 2. Run the configured linting and formatting checks.
-3. Review the resulting diff for unrelated changes.
-4. Report any tests or checks that could not be run or did not pass.
+3. If the change affects the CLI interface, check `.github/workflows/ci.yml` for invocations that need updating.
+4. Review the resulting diff for unrelated changes.
+5. Report any tests or checks that could not be run or did not pass.
 
 Exact commands are documented in `docs/development.md`.

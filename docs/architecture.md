@@ -62,11 +62,30 @@ The shell layer owns CLI-specific concerns, including argument parsing, terminal
 
 The command layer implements the operation itself using ordinary Python inputs and structured outputs and must not depend on argparse, presentation concerns, or the shell layer. The command layer should be callable independently of the CLI so that it can be unit tested and potentially reused by other interfaces.
 
+## Command-line grammar
+
+Commands serve one of two audiences, and identify a lab differently as a result.
+
+**Student-facing commands** take the lab as an optional positional argument *after* the subcommand, falling back to the `lab` property of `.lab/config.json`:
+
+```text
+gh lab setup-check          # lab comes from .lab/config.json
+gh lab setup-check 2        # one repository holding several labs
+```
+
+**Faculty-facing commands** operate across many repositories rather than within one, so they select their subject with options rather than a positional, for example `--lab` and `--org`.
+
+This matches the grammar of the GitHub CLI itself, which is uniformly verb-then-identifier: `gh pr view 42`, `gh issue close 17`, `gh run view <run-id>`. There is no `gh pr 42 view`.
+
+Hoisting the lab ahead of the subcommand (`gh lab 2 setup-check`) reads well and has been proposed more than once, but it was tried and rejected. `argparse` binds the first positional argument greedily, so an optional leading positional silently swallows the subcommand of any command that takes its own positional or has a nested group. Supporting it means splitting the lab off `sys.argv` by hand before `argparse` runs, and that cost is not worth the gain.
+
 ## External tools
 
-Commands may use Curl (`curl`) Git (`git`) and the GitHub CLI (`gh`) where it provides a straightforward and stable interface.
+Commands may use Git (`git`) and the GitHub CLI (`gh`) where it provides a straightforward and stable interface.
 
 Interactions with such external should be isolated from core decision-making logic where practical so that behaviour can be tested without requiring direct access. These interactions should be implemented behind adapters in the `adapters` package, which can be mocked or stubbed in tests.
+
+**Reach GitHub through `gh`, not over plain HTTP.** `gh` already carries the authentication the environment provides — from the host in a devcontainer, from the platform in a Codespace — so reading a private resource needs nothing of the user. A direct HTTP request would work only for public data and would need a token supplied from somewhere for anything else. An earlier `http` adapter was removed for this reason when the course configuration moved into a private repository.
 
 ## Design principles
 

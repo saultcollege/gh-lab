@@ -4,8 +4,8 @@ A GitHub CLI extension for managing programming lab repositories.
 
 ## Status
 
-Early development. The extension installs and runs, but `setup-check` is not
-implemented yet.
+Early development. `gh lab setup-check` is implemented; `gh lab accept-invites`
+is planned.
 
 ## Requirements
 
@@ -53,15 +53,44 @@ To install a specific version instead of tracking the latest:
 
     positional arguments:
       <command>
-        setup-check  Check whether the current lab repository is configured
-                     correctly.
+        setup-check  Check that your lab repository is set up correctly.
 
     options:
       -h, --help     show this help message and exit
       --version      show program's version number and exit
 
-`gh lab setup-check` is registered but not implemented yet; it reports that and
-exits non-zero. `gh lab accept-invites` is planned.
+`gh lab accept-invites` is planned.
+
+### `gh lab setup-check`
+
+Checks that your lab repository is set up correctly, and explains how to fix
+anything that is not. Run it from inside your lab repository:
+
+    gh lab setup-check
+
+If one repository holds several labs, say which one you are working on:
+
+    gh lab setup-check 2
+
+It checks that the repository is named correctly, is private, was created from
+the lab template, is owned by you rather than the course organization, that your
+faculty are collaborators, and that you are on the right branch.
+
+Anything it cannot check — because you are not signed in to the GitHub CLI, for
+example — is reported as *not checked* rather than as a failure.
+
+Options:
+
+    --format {text,json}     Output format (default: text)
+    --color {auto,never,always}
+
+The repository it checks against is described by `.lab/config.json`, written by
+your lab template. See [docs/configuration.md](docs/configuration.md) if you are
+setting up a course.
+
+It also runs in GitHub Actions, where failures appear as annotations on your
+pull request. Note that a passing result is a convenience, not proof of a correct
+submission — see the caution in the configuration docs.
 
 ## Troubleshooting
 
