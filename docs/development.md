@@ -84,6 +84,12 @@ Because pull requests are checked before merging, CI is the gate that protects
 users from a broken release. `main` is protected: changes land through pull
 requests rather than direct pushes.
 
+The **extension** and **platforms** jobs invoke `gh lab` directly, with the
+arguments written out in the workflow. Nothing links those to the argument
+parser, so a change to the CLI must be made in `.github/workflows/ci.yml` at the
+same time: a stale invocation passes the test suite and the linter, and fails
+only once it has been pushed.
+
 The **platforms** job is deliberately minimal. Exit codes and usage text are
 pure Python and already covered on Linux; what differs across operating systems
 is only whether the `gh-lab` shim can resolve its own directory, find an

@@ -101,10 +101,10 @@ jobs:
             exit 1
           fi
 
-      - name: setup-check reports cleanly instead of raising
+      - name: setup-check explains itself outside a lab repository
         run: |
           set +e
-          output=$(gh lab setup-check --org example-org --lab-name lab-1 2>&1)
+          output=$(gh lab setup-check 1 2>&1)
           status=$?
           set -e
           printf '%s\n' "$output"
@@ -112,6 +112,34 @@ jobs:
             echo "setup-check raised an unhandled exception" >&2
             exit 1
           fi
+          if [ "$status" -ne 2 ]; then
+            echo "expected exit status 2, got $status" >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$output" | grep -qF '.lab/config.json'; then
+            echo "expected the message to name the missing configuration file" >&2
+            exit 1
+          fi
+
+      # Written with printf rather than a heredoc: a heredoc terminator inside a
+      # YAML block scalar depends on how the block is dedented.
+      - name: setup-check reports failures cleanly in a lab repository
+        run: |
+          mkdir -p .lab
+          printf '%s' '{"repo-name":"example-lab-1","template-repo":"https://github.com/example-org/lab-1-template","course-config":"example-org/course-config/26f.json"}' > .lab/config.json
+          set +e
+          output=$(gh lab setup-check 1 2>&1)
+          status=$?
+          set -e
+          rm -rf .lab
+          printf '%s\n' "$output"
+          if printf '%s\n' "$output" | grep -q 'Traceback'; then
+            echo "setup-check raised an unhandled exception" >&2
+            exit 1
+          fi
+          # The branch check compares against 'lab-1' while CI is on the pull
+          # request's source branch or main, so this always has something to
+          # report and never depends on what gh can see.
           if [ "$status" -ne 1 ]; then
             echo "expected exit status 1, got $status" >&2
             exit 1

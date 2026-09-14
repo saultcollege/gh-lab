@@ -1,9 +1,11 @@
 """Tests for the ``setup-check`` command."""
 
+import argparse
 import dataclasses
 
 import pytest
 
+from gh_lab.cli import build_parser as main_parser
 from gh_lab.cli import main
 from gh_lab.commands.setup_check.command import (
     RepoFacts,
@@ -87,6 +89,33 @@ def test_rejects_a_lab_name_that_could_forge_a_branch(capsys):
 
     assert exit_code == 2
     assert "not a valid lab name" in capsys.readouterr().err
+
+
+def setup_check_parser() -> argparse.ArgumentParser:
+    """The subparser registered for setup-check."""
+    for action in main_parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action.choices["setup-check"]
+
+    raise AssertionError("setup-check is not registered")
+
+
+def test_argument_surface_is_stable():
+    """Pin the arguments, because CI invokes them directly.
+
+    `.github/workflows/ci.yml` hard-codes these, and a stale invocation there is
+    not caught by this suite: it fails only once the change has been pushed. If
+    this test fails, update the workflow in the same change.
+    """
+    parser = setup_check_parser()
+
+    options = {option for action in parser._actions for option in action.option_strings}
+    positionals = [
+        action.dest for action in parser._actions if not action.option_strings
+    ]
+
+    assert options == {"-h", "--help", "--format", "--color"}
+    assert positionals == ["lab"]
 
 
 # --- A fully correct setup -------------------------------------------------
