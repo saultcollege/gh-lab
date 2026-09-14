@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, format and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Entry point is executable in the index
+        run: |
+          mode=$(git ls-files -s gh-lab | cut -d' ' -f1)
+          if [ "$mode" != "100755" ]; then
+            echo "gh-lab must be mode 100755 in git, found $mode" >&2
+            exit 1
+          fi
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Tests
+        run: uv run pytest
+
+  extension:
+    name: Extension smoke test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_NO_EXTENSION_UPDATE_NOTIFIER: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        # The lower bound is the floor declared in pyproject.toml and the shim;
+        # the upper bound is the version used for development.
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the extension from this checkout
+        run: gh extension install .
+
+      - name: gh lab --help
+        run: |
+          output=$(gh lab --help)
+          printf '%s\n' "$output"
+          if ! printf '%s\n' "$output" | grep -q 'usage: gh lab'; then
+            echo "help output did not use the 'gh lab' program name" >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$output" | grep -q 'setup-check'; then
+            echo "help output did not list setup-check" >&2
+            exit 1
+          fi
+
+      - name: gh lab --version
+        run: |
+          output=$(gh lab --version)
+          printf '%s\n' "$output"
+          if ! printf '%s\n' "$output" | grep -q '^gh lab '; then
+            echo "unexpected version output" >&2
+            exit 1
+          fi
+
+      - name: Bare invocation prints usage and exits 2
+        run: |
+          set +e
+          output=$(gh lab 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 2 ]; then
+            echo "expected exit status 2, got $status" >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$output" | grep -q 'usage: gh lab'; then
+            echo "expected usage on failure" >&2
+            exit 1
+          fi
+
+      - name: setup-check reports cleanly instead of raising
+        run: |
+          set +e
+          output=$(gh lab setup-check --org example-org --lab-name lab-1 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if printf '%s\n' "$output" | grep -q 'Traceback'; then
+            echo "setup-check raised an unhandled exception" >&2
+            exit 1
+          fi
+          if [ "$status" -ne 1 ]; then
+            echo "expected exit status 1, got $status" >&2
+            exit 1
+          fi
+
+      - name: Remove the extension
+        run: gh extension remove lab
+
+  platforms:
+    # Students run gh lab inside Linux devcontainers, so this is a proof of life
+    # rather than a full smoke test: exit codes and usage text are pure Python
+    # and already covered above. What is OS-dependent is only whether the shim
+    # can resolve its own directory, find an interpreter, and exec the package,
+    # which `gh lab --version` exercises end to end.
+    name: Install check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # The default shell on Windows runners is PowerShell; the shim and these
+        # steps are bash.
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_NO_EXTENSION_UPDATE_NOTIFIER: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the extension from this checkout
+        run: gh extension install .
+
+      - name: gh lab runs
+        run: |
+          gh lab --version
+          gh lab --help
