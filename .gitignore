@@ -3,6 +3,10 @@ scratch.md
 # Don't include installed devcontainer tools
 .local/
 
+# This repository is the tool, never a lab. A .lab/config.json here is a local
+# fixture for trying setup-check out, and must not be committed.
+.lab/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

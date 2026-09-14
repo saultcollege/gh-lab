@@ -4,8 +4,8 @@ A GitHub CLI extension for managing programming lab repositories.
 
 ## Status
 
-Early development. The extension installs and runs, but `setup-check` is not
-implemented yet.
+Early development. `gh lab setup-check` is implemented; `gh lab accept-invites`
+is planned.
 
 ## Requirements
 
