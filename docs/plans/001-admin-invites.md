@@ -96,7 +96,7 @@ Example:
 
 Each task is independently delegatable and should end with the project's validation steps from `AGENTS.md`: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and a review of the diff for unrelated changes.
 
-1. [x] **Promote course-config parsing to a shared module.** Move `CourseConfig`, `Faculty`, `parse_course_config`, `parse_faculty`, `parse_course_config_ref`, `normalise_repo_ref` and `ConfigError` out of `src/gh_lab/commands/setup_check/config.py` into a new shared `src/gh_lab/course_config.py`, leaving lab-config parsing where it is. Update `setup_check` imports and `tests/commands/test_setup_check_config.py` accordingly. Document the shared module in `docs/architecture.md`. No behaviour change.
+1. [+] **Promote course-config parsing to a shared module.** Move `CourseConfig`, `Faculty`, `parse_course_config`, `parse_faculty`, `parse_course_config_ref`, `normalise_repo_ref` and `ConfigError` out of `src/gh_lab/commands/setup_check/config.py` into a new shared `src/gh_lab/course_config.py`, leaving lab-config parsing where it is. Update `setup_check` imports and `tests/commands/test_setup_check_config.py` accordingly. Document the shared module in `docs/architecture.md`. No behaviour change.
 
 2. [ ] **Add `students` to the course config schema.** Extend the shared parser with an optional `students` array parsed into the same person shape as `faculty`, defaulting to empty, with index-naming validation errors. Add tests covering: absent, empty, valid, missing `github`, and missing optional `name`. Update `docs/configuration.md`.
 

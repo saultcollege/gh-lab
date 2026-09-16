@@ -25,7 +25,7 @@ from gh_lab.commands.setup_check.command import (
     Status,
     run,
 )
-from gh_lab.commands.setup_check.config import ConfigError
+from gh_lab.course_config import ConfigError
 
 LAB_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 

@@ -39,9 +39,11 @@ should have corresponding command implementations such as:
 ```text
 src/gh_lab/
     cli.py
+    course_config.py
     commands/
         setup_check/
             command.py
+            config.py
             shell.py
         accept_invites/
             command.py
@@ -61,6 +63,16 @@ Each subcommand is divided into a shell layer (`shell.py`) and a command layer (
 The shell layer owns CLI-specific concerns, including argument parsing, terminal output, and exit codes. In practice `shell.py` exposes `register(subparsers)`, which declares the subcommand and its arguments, and `handle(args)`, which calls the command layer, reports its result, and maps it to an exit code.
 
 The command layer implements the operation itself using ordinary Python inputs and structured outputs and must not depend on argparse, presentation concerns, or the shell layer. The command layer should be callable independently of the CLI so that it can be unit tested and potentially reused by other interfaces.
+
+### Shared modules
+
+A command package owns what only it reads. Anything read by more than one command belongs beside `cli.py` instead, so that no command has to import from another command's package.
+
+`course_config.py` is the first of these. The course configuration document describes the course as a whole — who teaches it, and who is enrolled in it — and is read both by `setup-check`, to check repository access, and by the invite commands, to decide who to invite. Parsing it therefore lives at the top level, alongside the `ConfigError` type and the small validation helpers it shares.
+
+The lab configuration (`.lab/config.json`) is read only by `setup-check`, so `commands/setup_check/config.py` keeps it.
+
+Promote a module only when a second command actually needs it. This mirrors the principle below: architecture grows from concrete requirements.
 
 ## Command-line grammar
 

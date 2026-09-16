@@ -14,13 +14,15 @@ from enum import StrEnum
 from gh_lab.adapters import AdapterError, git, github_cli
 from gh_lab.commands.setup_check.config import (
     LAB_CONFIG_PATH,
+    LabConfig,
+    parse_lab_config,
+)
+from gh_lab.course_config import (
     ConfigError,
     CourseConfig,
     CourseConfigRef,
-    LabConfig,
     normalise_repo_ref,
     parse_course_config,
-    parse_lab_config,
 )
 
 
