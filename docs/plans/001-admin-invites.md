@@ -106,7 +106,7 @@ Each task is independently delegatable and should end with the project's validat
 
 5. [+] **Implement `admin invites send`.** Pure core in `command.py`: derive the org from the config ref, build the invite roster from faculty + students, and turn per-person API results into a structured report of plain dataclasses. Thin effectful layer for loading the config and calling the adapter. `shell.py` owns argparse, `--dry-run`, output and exit codes, following `setup_check`'s 0 / 1 / 2 convention.
 
-6. [ ] **Test `admin invites send`.** Pure functions called directly with plain data; effectful functions monkeypatched on the module object, as `test_setup_check.py` does. Cover: dry run makes no API calls, org derivation from each accepted config-ref spelling, an empty roster, already-a-member versus newly-invited reporting, and a partial failure. Include a `test_argument_surface_is_stable` guard test mirroring the existing one, since CI invokes the CLI directly.
+6. [+] **Test `admin invites send`.** Pure functions called directly with plain data; effectful functions monkeypatched on the module object, as `test_setup_check.py` does. Cover: dry run makes no API calls, org derivation from each accepted config-ref spelling, an empty roster, already-a-member versus newly-invited reporting, and a partial failure. Include a `test_argument_surface_is_stable` guard test mirroring the existing one, since CI invokes the CLI directly.
 
 7. [ ] **Add repository-invitation adapter functions.** `GET /user/repository_invitations` to list, `PATCH /user/repository_invitations/{id}` to accept, `DELETE /user/repository_invitations/{id}` to decline. Pure helpers to shape the listing into dataclasses and to filter by org. Tests as in task 3.
 
