@@ -163,14 +163,13 @@ def test_a_nested_verb_dispatches_through_its_handler(monkeypatch):
         lambda args: (seen.append(args), 0)[1],
     )
 
-    assert main(["admin", "invites", "send"]) == 0
+    argv = ["admin", "invites", "send", "--config-file", "org/course-config/26f.json"]
+
+    assert main(argv) == 0
     assert len(seen) == 1
 
 
-def test_the_unimplemented_verbs_say_so(capsys):
-    """Registered before they are implemented; better said than silently wrong."""
-    assert main(["admin", "invites", "send"]) == 2
-    assert "not implemented" in capsys.readouterr().err
-
+def test_an_unimplemented_verb_says_so(capsys):
+    """Registered before it is implemented; better said than silently wrong."""
     assert main(["admin", "invites", "accept"]) == 2
     assert "not implemented" in capsys.readouterr().err
