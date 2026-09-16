@@ -2,7 +2,7 @@
 
 import json
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from gh_lab.adapters import AdapterError
@@ -51,6 +51,36 @@ def _run_json(args: Sequence[str]) -> Any:
         raise AdapterError(
             "the GitHub CLI (gh) returned output that is not JSON"
         ) from error
+
+
+def _api_args(
+    endpoint: str,
+    *,
+    method: str | None = None,
+    fields: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Build the argument list for a ``gh api`` call.
+
+    ``gh api`` switches to POST as soon as a field is given, so a request that
+    is not a POST has to name its method even when it sends a body. Passing it
+    explicitly rather than relying on that default keeps each call site honest
+    about what it is doing.
+
+    Fields are sent with ``-f``, which types them as strings. Nothing here needs
+    a number, a boolean, or a nested object; ``--input`` would be the way to
+    send one.
+    """
+    args = ["api"]
+
+    if method:
+        args += ["-X", method]
+
+    for name, value in (fields or {}).items():
+        args += ["-f", f"{name}={value}"]
+
+    args.append(endpoint)
+
+    return args
 
 
 def repo_view() -> dict[str, Any]:
@@ -115,3 +145,34 @@ def fetch_repo_file(owner: str, repo: str, path: str, ref: str | None = None) ->
             endpoint,
         ]
     )
+
+
+def set_org_membership(org: str, username: str, role: str = "member") -> str:
+    """Invite a user to an organization, or update the role they hold in it.
+
+    Returns the resulting membership state: ``pending`` while an invitation is
+    outstanding, or ``active`` once the user has accepted one. A caller can use
+    that to tell a new invitation from someone who was already a member.
+
+    This is a PUT, so sending it twice is not an error the way creating an
+    invitation twice would be; it states the membership that should hold rather
+    than asking for a new invitation. Only an owner of the organization may call
+    it.
+    """
+    result = _run_json(
+        _api_args(
+            f"orgs/{org}/memberships/{username}",
+            method="PUT",
+            fields={"role": role},
+        )
+    )
+
+    if not isinstance(result, dict):
+        raise AdapterError(f"unexpected response when inviting {username} to {org}")
+
+    state = result.get("state")
+
+    if not isinstance(state, str):
+        raise AdapterError(f"gh did not report a membership state for {username}")
+
+    return state
