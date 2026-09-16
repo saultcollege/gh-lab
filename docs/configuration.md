@@ -5,8 +5,8 @@
 * **`.lab/config.json`**, committed in the root of a lab repository and written
   by the lab template. It describes one lab.
 * **the course configuration**, held in a private repository owned by the course
-  organization. It lists the faculty for the course and is shared by every lab
-  in it.
+  organization. It lists the people on the course — faculty, and optionally
+  students — and is shared by every lab in it.
 
 ## `.lab/config.json`
 
@@ -85,6 +85,9 @@ It lives here rather than in the course configuration deliberately — see
 {
   "faculty": [
     { "name": "Bob Bob", "github": "bobber24" }
+  ],
+  "students": [
+    { "name": "Stu Dent", "github": "student" }
   ]
 }
 ```
@@ -92,6 +95,7 @@ It lives here rather than in the course configuration deliberately — see
 | Property | Required | Meaning |
 | --- | --- | --- |
 | `faculty` | yes | Who must be a collaborator on every student repository. May be empty. |
+| `students` | no | Who is enrolled in the course. Defaults to empty. |
 
 The file may live anywhere in a repository the students can read; point
 `course-config` at it. A private repository in the course organization works,
@@ -115,9 +119,22 @@ An entry without a `github` property is an error, and the message names its
 position in the array, because the person who has to fix the file is the one who
 wrote it.
 
+### `students`
+
+Each entry has the same shape as a faculty entry: `github` is required, `name` is
+optional, and any other property is ignored. An entry without `github` is an
+error naming its position, exactly as for `faculty`.
+
+The property itself is optional and defaults to empty, so a course configuration
+written before it existed still works.
+
+`setup-check` does not read it. It is accepted now so that a course configuration
+can carry its roster ahead of the faculty-facing invite commands, which will use
+it to decide who to invite to the course organization.
+
 ## Why the split is where it is
 
-Only the faculty list lives in the course configuration. Everything else is
+Only the course roster lives in the course configuration. Everything else is
 stated in `.lab/config.json` or derived from it. That is not arbitrary.
 
 `setup-check` has to run in two places: a student's devcontainer or Codespace,
@@ -131,9 +148,10 @@ repository, and neither is acceptable for student-owned repos.
 So anything kept in the course configuration is unavailable to the check when it
 runs in Actions. The faculty check is already skipped there for a separate reason
 — listing collaborators needs write access the workflow token does not have — so
-putting the faculty list there costs nothing. Putting `branch-pattern` there
-would have cost the branch check, which is the one most worth having on a pull
-request.
+putting the faculty list there costs nothing. `students` is read only by
+faculty-facing commands, which run on a faculty machine and never in Actions, so
+it costs nothing either. Putting `branch-pattern` there would have cost the
+branch check, which is the one most worth having on a pull request.
 
 `branch-pattern` therefore lives in exactly one place. If the course
 configuration could override it, a student would see one expected branch locally

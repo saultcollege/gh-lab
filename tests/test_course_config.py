@@ -157,3 +157,66 @@ def test_superseded_properties_are_ignored():
     }
 
     assert len(parse_course_config(data, SOURCE).faculty) == 1
+
+
+# --- students --------------------------------------------------------------
+
+
+def test_students_are_absent_by_default():
+    """A course configuration predating the invite commands must still parse."""
+    assert parse_course_config(COURSE_CONFIG, SOURCE).students == ()
+
+
+def test_students_may_be_empty():
+    data = {**COURSE_CONFIG, "students": []}
+
+    assert parse_course_config(data, SOURCE).students == ()
+
+
+def test_parses_the_student_list():
+    data = {**COURSE_CONFIG, "students": [{"name": "Stu Dent", "github": "student"}]}
+
+    (person,) = parse_course_config(data, SOURCE).students
+
+    assert person.github == "student"
+    assert person.display == "Stu Dent (@student)"
+
+
+def test_student_name_is_optional():
+    data = {**COURSE_CONFIG, "students": [{"github": "student"}]}
+
+    (person,) = parse_course_config(data, SOURCE).students
+
+    assert person.name is None
+    assert person.display == "@student"
+
+
+def test_a_student_entry_without_github_names_its_position():
+    data = {**COURSE_CONFIG, "students": [{"github": "ok"}, {"name": "No Handle"}]}
+
+    with pytest.raises(ConfigError, match=r"students\[1\].*github"):
+        parse_course_config(data, SOURCE)
+
+
+def test_a_student_entry_that_is_a_bare_string_is_rejected():
+    data = {**COURSE_CONFIG, "students": ["student"]}
+
+    with pytest.raises(ConfigError, match=r"students\[0\]"):
+        parse_course_config(data, SOURCE)
+
+
+def test_a_students_property_that_is_not_an_array_is_rejected():
+    """Absent is fine; present and the wrong shape is a mistake worth naming."""
+    data = {**COURSE_CONFIG, "students": "student"}
+
+    with pytest.raises(ConfigError, match="students"):
+        parse_course_config(data, SOURCE)
+
+
+def test_faculty_and_students_are_kept_apart():
+    data = {"faculty": [{"github": "prof"}], "students": [{"github": "student"}]}
+
+    config = parse_course_config(data, SOURCE)
+
+    assert [person.github for person in config.faculty] == ["prof"]
+    assert [person.github for person in config.students] == ["student"]

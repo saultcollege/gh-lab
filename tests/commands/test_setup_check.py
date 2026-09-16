@@ -14,7 +14,7 @@ from gh_lab.commands.setup_check.command import (
     resolve_branch,
 )
 from gh_lab.commands.setup_check.config import LabConfig
-from gh_lab.course_config import CourseConfig, CourseConfigRef, Faculty
+from gh_lab.course_config import CourseConfig, CourseConfigRef, Person
 
 TEMPLATE_URL = "https://github.com/saultcollege-csd110/lab-1-template"
 TEMPLATE_REF = "saultcollege-csd110/lab-1-template"
@@ -27,7 +27,7 @@ LAB_CONFIG = LabConfig(
     course_config=CONFIG_REF,
 )
 
-COURSE_CONFIG = CourseConfig(faculty=(Faculty(github="bobber24", name="Bob Bob"),))
+COURSE_CONFIG = CourseConfig(faculty=(Person(github="bobber24", name="Bob Bob"),))
 
 GOOD_FACTS = RepoFacts(
     name="csd110-lab-1",
@@ -214,8 +214,8 @@ def test_faculty_matching_ignores_case():
 def test_multiple_missing_faculty_each_get_a_command():
     course = CourseConfig(
         faculty=(
-            Faculty(github="bobber24", name="Bob Bob"),
-            Faculty(github="alice99"),
+            Person(github="bobber24", name="Bob Bob"),
+            Person(github="alice99"),
         ),
     )
 

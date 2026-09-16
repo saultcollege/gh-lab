@@ -98,8 +98,13 @@ def normalise_repo_ref(value: Any) -> str | None:
 
 
 @dataclass(frozen=True)
-class Faculty:
-    """A member of faculty who should have access to student repositories."""
+class Person:
+    """Someone named in the course configuration.
+
+    Faculty and students are described the same way — a GitHub handle and,
+    optionally, a real name. Which one someone is follows from the array they
+    appear in, not from their entry.
+    """
 
     github: str
     name: str | None = None
@@ -128,13 +133,14 @@ class CourseConfigRef:
 class CourseConfig:
     """The contents of the course configuration document.
 
-    Only the faculty list: a workflow running in a student's repository cannot
-    read a private repository in the course organization, so everything
+    Only the people on the course: a workflow running in a student's repository
+    cannot read a private repository in the course organization, so everything
     ``setup-check`` needs about the lab itself is stated in ``.lab/config.json``
     instead.
     """
 
-    faculty: tuple[Faculty, ...]
+    faculty: tuple[Person, ...]
+    students: tuple[Person, ...] = ()
 
 
 def parse_course_config_ref(value: str, source: str) -> CourseConfigRef:
@@ -210,35 +216,40 @@ def _parse_url_ref(text: str, source: str) -> CourseConfigRef:
     )
 
 
-def parse_faculty(entries: Any, source: str) -> tuple[Faculty, ...]:
-    """Build the faculty list from the ``faculty`` array of a course config.
+def parse_people(entries: Any, source: str, key: str) -> tuple[Person, ...]:
+    """Build a list of people from the ``key`` array of a course config.
 
     Each entry is an object; only its ``github`` property is required. Errors
-    name the offending index, because the person who has to fix the file is the
-    faculty member who wrote it.
+    name the offending array and index, because the person who has to fix the
+    file is the faculty member who wrote it.
     """
     if not isinstance(entries, list):
-        raise ConfigError(f"{source} is missing a 'faculty' array")
+        raise ConfigError(f"{source} is missing a {key!r} array")
 
-    faculty = []
+    people = []
     for index, entry in enumerate(entries):
-        where = f"{source} faculty[{index}]"
+        where = f"{source} {key}[{index}]"
 
         if not isinstance(entry, dict):
             raise ConfigError(f"{where} must be an object with a 'github' property")
 
-        faculty.append(
-            Faculty(
+        people.append(
+            Person(
                 github=require_string(entry, "github", where),
                 name=optional_string(entry, "name", where),
             )
         )
 
-    return tuple(faculty)
+    return tuple(people)
 
 
 def parse_course_config(data: Any, source: str) -> CourseConfig:
     """Build a :class:`CourseConfig` from already-loaded JSON.
+
+    ``faculty`` is required. ``students`` is optional and defaults to empty, so
+    that a course configuration written before the invite commands existed still
+    parses, and so that ``setup-check``, which does not read it, is unaffected
+    by a course that has not listed one.
 
     Unrecognised properties are ignored, so a file still carrying the
     ``course-org`` and ``branch-pattern`` of an earlier design does not fail.
@@ -246,4 +257,11 @@ def parse_course_config(data: Any, source: str) -> CourseConfig:
     if not isinstance(data, dict):
         raise ConfigError(f"{source} must contain a JSON object")
 
-    return CourseConfig(faculty=parse_faculty(data.get("faculty"), source))
+    students = data.get("students")
+
+    return CourseConfig(
+        faculty=parse_people(data.get("faculty"), source, "faculty"),
+        students=(
+            () if students is None else parse_people(students, source, "students")
+        ),
+    )
