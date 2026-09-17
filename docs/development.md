@@ -57,6 +57,18 @@ useful for checking behaviour on the oldest supported Python:
 
     uv run pytest
 
+The suite never reaches GitHub, git, or the network. `tests/conftest.py` blocks
+`subprocess.run` for every test, so a test that exercises an adapter has to stub
+it — either `subprocess.run` itself, as the adapter tests do, or the adapter
+function that calls it, as the command tests do.
+
+A test that forgets shows up as:
+
+    AssertionError: this test ran an external command: ['gh', 'api', 'user']
+
+rather than as a real API call that passes and merely takes longer, which is how
+one went unnoticed.
+
 ## Lint
 
     uv run ruff check .
