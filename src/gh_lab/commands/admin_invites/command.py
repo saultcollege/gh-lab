@@ -224,17 +224,29 @@ class RepositoryInvitation:
             names one because the repository has been deleted.
         inviter: Who sent the invitation, when GitHub said.
         permission: The access the invitation grants.
+        expired: Whether GitHub considers the invitation no longer valid.
     """
 
     id: int
     repository: str | None = None
     inviter: str | None = None
     permission: str | None = None
+    expired: bool = False
 
     @property
     def name(self) -> str:
         """The repository, or a stand-in when GitHub no longer names one."""
         return self.repository or MISSING_REPOSITORY
+
+    @property
+    def acceptable(self) -> bool:
+        """Whether accepting this invitation would achieve anything.
+
+        Accepting an expired invitation is answered as a success and grants no
+        access, while still consuming the invitation. Nothing in the response
+        says so, so the only way not to be misled by it is not to send it.
+        """
+        return not self.expired
 
     @property
     def display(self) -> str:
@@ -243,10 +255,15 @@ class RepositoryInvitation:
         The permission is left off an invitation whose repository is gone: it
         grants access to nothing, and reads as noise beside the stand-in.
         """
-        if self.repository is None or not self.permission:
-            return self.name
+        notes = []
 
-        return f"{self.name} ({self.permission})"
+        if self.repository is not None and self.permission:
+            notes.append(self.permission)
+
+        if self.expired:
+            notes.append("expired")
+
+        return f"{self.name} ({', '.join(notes)})" if notes else self.name
 
 
 def parse_invitation(entry: Mapping[str, object]) -> RepositoryInvitation | None:
@@ -280,6 +297,7 @@ def parse_invitation(entry: Mapping[str, object]) -> RepositoryInvitation | None
         repository=full_name if isinstance(full_name, str) and full_name else None,
         inviter=inviter.get("login") if isinstance(inviter, dict) else None,
         permission=permission if isinstance(permission, str) else None,
+        expired=entry.get("expired") is True,
     )
 
 
@@ -383,7 +401,15 @@ def choose(review: Review, choice: Choice) -> Review:
 
     Pure: returns a new review rather than modifying one.
     """
-    if review.stage is not Stage.REVIEWING or review.current is None:
+    invitation = review.current
+
+    if review.stage is not Stage.REVIEWING or invitation is None:
+        return review
+
+    # Refused here rather than only in the prompt, so that the rule holds for
+    # any caller: accepting an expired invitation destroys it and grants
+    # nothing, and the response gives no sign of either.
+    if choice is Choice.ACCEPT and not invitation.acceptable:
         return review
 
     choices = list(review.choices)

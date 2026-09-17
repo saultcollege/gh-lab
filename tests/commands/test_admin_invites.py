@@ -531,6 +531,8 @@ LAB_1 = RepositoryInvitation(1, "alice/lab-1", "alice", "write")
 LAB_2 = RepositoryInvitation(2, "bob/lab-1", "bob", "write")
 SPAM = RepositoryInvitation(3, "spammer/crypto", "spammer", "admin")
 
+EXPIRED = RepositoryInvitation(4, "carol/lab-1", "carol", "write", expired=True)
+
 PENDING = (LAB_1, LAB_2, SPAM)
 
 
@@ -851,3 +853,97 @@ def test_a_deleted_repository_is_shown_without_a_permission():
 
     assert invitation.display == invitation.name
     assert "write" not in invitation.display
+
+
+# --- Expired invitations ---------------------------------------------------
+
+
+def test_expiry_is_read_from_the_entry():
+    assert parse_invitation(invitation_entry(expired=True)).expired is True
+
+
+@pytest.mark.parametrize("entry", [{}, {"expired": False}, {"expired": "yes"}])
+def test_anything_but_a_true_expiry_is_not_expired(entry):
+    """Only GitHub's boolean true means expired; a stray value must not."""
+    assert parse_invitation(invitation_entry(**entry)).expired is False
+
+
+def test_an_expired_invitation_says_so():
+    invitation = parse_invitation(invitation_entry(expired=True))
+
+    assert "expired" in invitation.display
+    assert "write" in invitation.display
+
+
+def test_an_expired_invitation_cannot_be_accepted():
+    assert parse_invitation(invitation_entry(expired=True)).acceptable is False
+
+
+def test_a_current_invitation_can_be_accepted():
+    assert parse_invitation(invitation_entry()).acceptable is True
+
+
+def test_choosing_to_accept_an_expired_invitation_does_nothing():
+    """Enforced in the state machine, not only in the prompt.
+
+    Accepting an expired invitation is answered as a success, grants nothing and
+    uses the invitation up, so no caller should be able to send one.
+    """
+    review = begin_review((EXPIRED,))
+
+    assert choose(review, Choice.ACCEPT) == review
+
+
+def test_an_expired_invitation_can_still_be_declined():
+    review = choose(begin_review((EXPIRED,)), Choice.DECLINE)
+
+    assert review.choices[0] is Choice.DECLINE
+    assert review.stage is Stage.CONFIRMING
+
+
+def test_the_prompt_does_not_offer_to_accept_an_expired_invitation():
+    output = io.StringIO()
+    shell.review_interactively(begin_review((EXPIRED,)), FakeTerminal("s\ny\n"), output)
+
+    shown = output.getvalue()
+
+    assert "[d]ecline" in shown
+    assert "[a]ccept" not in shown
+
+
+def test_asking_to_accept_an_expired_invitation_explains_and_asks_again():
+    output = io.StringIO()
+    review = shell.review_interactively(
+        begin_review((EXPIRED,)), FakeTerminal("a\nd\ny\n"), output
+    )
+
+    shown = output.getvalue()
+
+    assert "cannot be accepted" in shown
+    assert "@carol" in shown
+    # The 'a' was refused, so the same invitation was asked about twice.
+    assert shown.count("1 of 1") == 2
+    assert review.choices[0] is Choice.DECLINE
+
+
+def test_the_review_names_who_to_ask_for_a_new_invitation():
+    output = io.StringIO()
+    shell.review_interactively(begin_review((EXPIRED,)), FakeTerminal("s\ny\n"), output)
+
+    assert "invite you again" in output.getvalue()
+
+
+def test_an_expired_invitation_is_marked_in_the_listing():
+    assert "expired" in shell.render_pending((EXPIRED,))
+
+
+def test_an_expired_invitation_with_no_inviter_still_says_what_to_do():
+    """GitHub types inviter as nullable, so the advice cannot hang off it alone."""
+    anonymous = RepositoryInvitation(9, "carol/lab-1", None, "write", expired=True)
+    output = io.StringIO()
+
+    shell.review_interactively(
+        begin_review((anonymous,)), FakeTerminal("s\ny\n"), output
+    )
+
+    assert "invite you again" in output.getvalue()

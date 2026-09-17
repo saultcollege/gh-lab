@@ -66,6 +66,10 @@ CONFIRM_PROMPT = "\n[y]es, do it  [e]dit  [n]o, cancel: "
 
 NOTHING_PENDING = "No invitations are waiting for you."
 
+CANNOT_ACCEPT = "An expired invitation cannot be accepted."
+
+ASK_AGAIN = "ask them to invite you again"
+
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     """Register the ``invites`` group on the ``admin`` subparsers."""
@@ -283,16 +287,25 @@ def _review_one(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
     # is where a mistyped one is caught.
     default = review.choices[review.position]
 
-    answer = _ask(_review_prompt(default), stdin, stdout)
+    answer = _ask(_review_prompt(default, invitation), stdin, stdout)
 
     if answer in ("q", "quit"):
         return cancel(review)
 
-    return choose(review, REVIEW_ANSWERS.get(answer, default))
+    choice = REVIEW_ANSWERS.get(answer, default)
+
+    if choice is Choice.ACCEPT and not invitation.acceptable:
+        print(f"\n{INDENT}{CANNOT_ACCEPT}", file=stdout)
+        return review
+
+    return choose(review, choice)
 
 
-def _review_prompt(default: Choice) -> str:
-    return f"[a]ccept  [d]ecline  [s]kip  [q]uit (default: {default.value}): "
+def _review_prompt(default: Choice, invitation: RepositoryInvitation) -> str:
+    """The answers on offer, which exclude accepting an expired invitation."""
+    accept = "" if not invitation.acceptable else "[a]ccept  "
+
+    return f"{accept}[d]ecline  [s]kip  [q]uit (default: {default.value}): "
 
 
 def _ask_to_confirm(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
@@ -327,8 +340,13 @@ def _ask(prompt: str, stdin: TextIO, stdout: TextIO) -> str:
 def _describe(invitation: RepositoryInvitation, index: int, total: int) -> str:
     lines = [f"\n{index} of {total}  {invitation.display}"]
 
+    # The remedy hangs off whoever sent it, because asking them again is the
+    # only thing that helps and they are named right there.
     if invitation.inviter:
-        lines.append(f"{INDENT}invited by @{invitation.inviter}")
+        line = f"{INDENT}invited by @{invitation.inviter}"
+        lines.append(f"{line} — {ASK_AGAIN}" if not invitation.acceptable else line)
+    elif not invitation.acceptable:
+        lines.append(f"{INDENT}Ask the repository owner to invite you again.")
 
     return "\n".join(lines)
 
@@ -346,7 +364,7 @@ def render_choices(review: Review) -> str:
     lines = ["", "You chose:"]
 
     for invitation, choice in review.decided:
-        lines.append(f"{INDENT}{CHOICE_LABELS[choice]}  {invitation.name}")
+        lines.append(f"{INDENT}{CHOICE_LABELS[choice]}  {invitation.display}")
 
     if not review.decided:
         lines.append(f"{INDENT}nothing")
@@ -366,7 +384,7 @@ def render_actions(
     lines = [""]
 
     for result in results:
-        line = f"{INDENT}{CHOICE_LABELS[result.choice]}  {result.invitation.name}"
+        line = f"{INDENT}{CHOICE_LABELS[result.choice]}  {result.invitation.display}"
         lines.append(f"{line} — {result.error}" if result.error else line)
 
     counts = [
