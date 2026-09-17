@@ -114,6 +114,6 @@ Each task is independently delegatable and should end with the project's validat
 
 9. [+] **Test `admin invites accept`.** Drive the state machine directly for review, edit, cancel and confirm paths; stub stdin for the prompt loop; assert that no accept or decline call is made before confirmation. Add the argument-surface guard test.
 
-10. [ ] **Update user-facing documentation.** `README.md` (including the embedded `--help` block and both "`gh lab accept-invites` is planned" mentions), `docs/architecture.md` (the nested grammar, the shared course-config module, and the `accept_invites/` example), and `docs/configuration.md` (the `students` array).
+10. [+] **Update user-facing documentation.** `README.md` (including the embedded `--help` block and both "`gh lab accept-invites` is planned" mentions), `docs/architecture.md` (the nested grammar, the shared course-config module, and the `accept_invites/` example), and `docs/configuration.md` (the `students` array).
 
 11. [ ] **Update CI.** `.github/workflows/ci.yml` invokes the CLI directly, so a stale invocation fails only after push. Add `admin` to the `gh lab --help` grep, and add a smoke invocation of `gh lab admin invites send --dry-run` against a throwaway config plus `gh lab admin invites accept` in a non-TTY context, following the existing `printf`-based config setup. Keep `docs/development.md`'s command list in step.

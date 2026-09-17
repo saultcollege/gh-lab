@@ -128,9 +128,10 @@ error naming its position, exactly as for `faculty`.
 The property itself is optional and defaults to empty, so a course configuration
 written before it existed still works.
 
-`setup-check` does not read it. It is accepted now so that a course configuration
-can carry its roster ahead of the faculty-facing invite commands, which will use
-it to decide who to invite to the course organization.
+`setup-check` does not read it. It is read by `gh lab admin invites send`, which
+invites everyone named in the file — faculty and students alike — to the course
+organization. A course that never runs that command does not need a `students`
+array at all.
 
 ## Why the split is where it is
 

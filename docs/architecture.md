@@ -31,7 +31,7 @@ For example:
 
 ```text
 gh lab setup-check
-gh lab accept-invites
+gh lab admin invites send
 ```
 
 should have corresponding command implementations such as:
@@ -45,10 +45,15 @@ src/gh_lab/
             command.py
             config.py
             shell.py
-        accept_invites/
+        admin_invites/
             command.py
             shell.py
 ```
+
+A package may own more than one verb where they share their subject matter, as
+`admin_invites` owns both `send` and `accept`. The split between `shell.py` and
+`command.py` is unchanged by that; `shell.py` simply registers more than one
+parser and exposes a handler for each.
 
 The top-level CLI is responsible primarily for:
 
@@ -60,7 +65,7 @@ Business logic should not be embedded in argument parsing or CLI dispatch code.
 
 Each subcommand is divided into a shell layer (`shell.py`) and a command layer (`command.py`). 
 
-The shell layer owns CLI-specific concerns, including argument parsing, terminal output, and exit codes. In practice `shell.py` exposes `register(subparsers)`, which declares the subcommand and its arguments, and `handle(args)`, which calls the command layer, reports its result, and maps it to an exit code.
+The shell layer owns CLI-specific concerns, including argument parsing, terminal output, and exit codes. In practice `shell.py` exposes `register(subparsers)`, which declares the subcommand and its arguments, and a handler taking the parsed arguments, which calls the command layer, reports its result, and maps it to an exit code. A package owning several verbs exposes one handler per verb.
 
 The command layer implements the operation itself using ordinary Python inputs and structured outputs and must not depend on argparse, presentation concerns, or the shell layer. The command layer should be callable independently of the CLI so that it can be unit tested and potentially reused by other interfaces.
 
@@ -85,7 +90,20 @@ gh lab setup-check          # lab comes from .lab/config.json
 gh lab setup-check 2        # one repository holding several labs
 ```
 
-**Faculty-facing commands** operate across many repositories rather than within one, so they select their subject with options rather than a positional, for example `--lab` and `--org`.
+**Faculty-facing commands** operate across many repositories rather than within one, so they select their subject with options rather than a positional, for example `--config-file` and `--org`:
+
+```text
+gh lab admin invites send --config-file my-org/course-info/26f.json
+gh lab admin invites accept --org my-org
+```
+
+### Command groups
+
+Faculty-facing commands are grouped under `admin`, so that what a student runs and what an instructor runs are not interleaved in one list.
+
+A group is a parser with subparsers of its own and no behaviour: naming one alone is a usage error, exactly as a bare `gh lab` is. Groups are registered in `cli.py` rather than by any command package, so that a second group can be added beside an existing one without either package knowing about the other. Dispatch is unaffected by the extra depth — the parser for a verb sets `handler` and `main` calls it, at whatever level the verb sits.
+
+Nesting is worth its cost only where a noun genuinely has several verbs. `setup-check` stays a single top-level command because it is one operation, and wrapping it in a group would add a word to the line students type most often.
 
 This matches the grammar of the GitHub CLI itself, which is uniformly verb-then-identifier: `gh pr view 42`, `gh issue close 17`, `gh run view <run-id>`. There is no `gh pr 42 view`.
 
