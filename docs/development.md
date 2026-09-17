@@ -75,8 +75,11 @@ three jobs:
   listed above.
 * **extension** (Linux) — installs the extension with `gh extension install .`
   on both the oldest and newest supported Python versions and asserts that
-  `gh lab --help`, `gh lab --version`, bare `gh lab` and `gh lab setup-check`
-  behave correctly.
+  `gh lab --help`, `gh lab --version`, bare `gh lab`, `gh lab setup-check` and
+  the commands under `gh lab admin` behave correctly. The `admin invites accept`
+  step runs under `timeout` with stdin closed: a prompt nobody can answer would
+  hang the job rather than fail it, so blocking is what that step is there to
+  catch.
 * **platforms** (macOS, Windows) — installs the extension and runs
   `gh lab --version` and `gh lab --help`.
 
