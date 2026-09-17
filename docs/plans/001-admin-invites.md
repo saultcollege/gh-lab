@@ -110,7 +110,7 @@ Each task is independently delegatable and should end with the project's validat
 
 7. [+] **Add repository-invitation adapter functions.** `GET /user/repository_invitations` to list, `PATCH /user/repository_invitations/{id}` to accept, `DELETE /user/repository_invitations/{id}` to decline. Pure helpers to shape the listing into dataclasses and to filter by org. Tests as in task 3.
 
-8. [ ] **Implement `admin invites accept`.** The review/confirm/edit/cancel flow as a pure state machine over plain data, so it can be tested without a terminal, with a thin `input()`-driven shell around it. Bulk-process only on confirmation. Handle a non-TTY stdin explicitly rather than blocking.
+8. [+] **Implement `admin invites accept`.** The review/confirm/edit/cancel flow as a pure state machine over plain data, so it can be tested without a terminal, with a thin `input()`-driven shell around it. Bulk-process only on confirmation. Handle a non-TTY stdin explicitly rather than blocking.
 
 9. [ ] **Test `admin invites accept`.** Drive the state machine directly for review, edit, cancel and confirm paths; stub stdin for the prompt loop; assert that no accept or decline call is made before confirmation. Add the argument-surface guard test.
 

@@ -8,7 +8,7 @@ kept separate and deliberately thin.
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from gh_lab.adapters import AdapterError, github_cli
@@ -309,3 +309,178 @@ def invitations_from_org(
         for invitation in invitations
         if invitation.owner.casefold() == wanted
     )
+
+
+class Choice(StrEnum):
+    """What the user decided to do with one invitation."""
+
+    ACCEPT = "accept"
+    DECLINE = "decline"
+    SKIP = "skip"
+
+
+class Stage(StrEnum):
+    """Where a review has got to.
+
+    Nothing is accepted or declined before :attr:`CONFIRMED`, which is the whole
+    point of having a stage at all: the user sees every invitation, and what
+    they chose for each, before anything is acted on.
+    """
+
+    REVIEWING = "reviewing"
+    CONFIRMING = "confirming"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True)
+class Review:
+    """A review in progress.
+
+    ``choices`` runs parallel to ``invitations``: every invitation has a choice
+    from the outset, defaulting to :attr:`Choice.SKIP`, so that abandoning a
+    review part-way through cannot leave an invitation in an undecided state.
+
+    Attributes:
+        invitations: What is being reviewed, in the order shown.
+        choices: What was chosen for each, same length and order.
+        position: The invitation under review, or one past the end once every
+            invitation has been seen.
+        stage: Where the review has got to.
+    """
+
+    invitations: tuple[RepositoryInvitation, ...]
+    choices: tuple[Choice, ...]
+    position: int = 0
+    stage: Stage = Stage.REVIEWING
+
+    @property
+    def current(self) -> RepositoryInvitation | None:
+        """The invitation under review, or ``None`` past the end of the list."""
+        if self.position >= len(self.invitations):
+            return None
+
+        return self.invitations[self.position]
+
+    @property
+    def decided(self) -> tuple[tuple[RepositoryInvitation, Choice], ...]:
+        """Every invitation whose choice asks for something to be done."""
+        return tuple(
+            (invitation, choice)
+            for invitation, choice in zip(self.invitations, self.choices)
+            if choice is not Choice.SKIP
+        )
+
+    @property
+    def skipped(self) -> tuple[RepositoryInvitation, ...]:
+        return tuple(
+            invitation
+            for invitation, choice in zip(self.invitations, self.choices)
+            if choice is Choice.SKIP
+        )
+
+
+def begin_review(invitations: Sequence[RepositoryInvitation]) -> Review:
+    """Start a review with every invitation skipped.
+
+    Pure: takes plain data and returns plain data.
+    """
+    return Review(
+        invitations=tuple(invitations),
+        choices=tuple(Choice.SKIP for _ in invitations),
+    )
+
+
+def choose(review: Review, choice: Choice) -> Review:
+    """Record ``choice`` for the invitation under review and move to the next.
+
+    Once every invitation has been seen the review moves to
+    :attr:`Stage.CONFIRMING`; it never acts on anything by itself.
+
+    Pure: returns a new review rather than modifying one.
+    """
+    if review.stage is not Stage.REVIEWING or review.current is None:
+        return review
+
+    choices = list(review.choices)
+    choices[review.position] = choice
+    position = review.position + 1
+
+    return replace(
+        review,
+        choices=tuple(choices),
+        position=position,
+        stage=(
+            Stage.CONFIRMING if position >= len(review.invitations) else Stage.REVIEWING
+        ),
+    )
+
+
+def edit(review: Review) -> Review:
+    """Go back to the start of the list, keeping every choice already made."""
+    return replace(review, position=0, stage=Stage.REVIEWING)
+
+
+def confirm(review: Review) -> Review:
+    """Agree to everything chosen. The only stage from which anything happens."""
+    return replace(review, stage=Stage.CONFIRMED)
+
+
+def cancel(review: Review) -> Review:
+    """Abandon the review, whatever was chosen."""
+    return replace(review, stage=Stage.CANCELLED)
+
+
+@dataclass(frozen=True)
+class ActionResult:
+    """What became of one accepted or declined invitation."""
+
+    invitation: RepositoryInvitation
+    choice: Choice
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error
+
+
+def list_pending(org: str | None = None) -> tuple[RepositoryInvitation, ...]:
+    """The invitations pending for the current user, optionally one org's only.
+
+    Raises:
+        AdapterError: The invitations could not be listed.
+    """
+    entries = github_cli.list_repository_invitations()
+
+    return invitations_from_org(parse_invitations(entries), org)
+
+
+def apply_review(review: Review) -> tuple[ActionResult, ...]:
+    """Carry out everything a confirmed review asked for.
+
+    Does nothing at all unless the review was confirmed, so that a cancelled or
+    half-finished review cannot accept anything by accident.
+
+    One failure does not stop the rest: an invitation someone has already
+    revoked should not decide whether the others are accepted.
+    """
+    if review.stage is not Stage.CONFIRMED:
+        return ()
+
+    results = []
+
+    for invitation, choice in review.decided:
+        act = (
+            github_cli.accept_repository_invitation
+            if choice is Choice.ACCEPT
+            else github_cli.decline_repository_invitation
+        )
+
+        try:
+            act(invitation.id)
+        except AdapterError as error:
+            results.append(ActionResult(invitation, choice, str(error)))
+        else:
+            results.append(ActionResult(invitation, choice))
+
+    return tuple(results)

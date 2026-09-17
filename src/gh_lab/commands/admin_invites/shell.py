@@ -11,11 +11,25 @@ subject with options rather than a positional argument.
 
 import argparse
 import sys
+from collections.abc import Sequence
+from typing import TextIO
 
 from gh_lab.adapters import AdapterError
 from gh_lab.commands.admin_invites.command import (
+    ActionResult,
+    Choice,
     Outcome,
+    RepositoryInvitation,
+    Review,
     SendReport,
+    Stage,
+    apply_review,
+    begin_review,
+    cancel,
+    choose,
+    confirm,
+    edit,
+    list_pending,
     run_send,
 )
 from gh_lab.course_config import ConfigError
@@ -30,6 +44,25 @@ LABELS = {
 }
 
 INDENT = "  "
+
+# What each keystroke means while reviewing. Anything else, a bare Return
+# included, leaves the current choice alone.
+REVIEW_ANSWERS = {
+    "a": Choice.ACCEPT,
+    "accept": Choice.ACCEPT,
+    "d": Choice.DECLINE,
+    "decline": Choice.DECLINE,
+    "s": Choice.SKIP,
+    "skip": Choice.SKIP,
+}
+
+CHOICE_LABELS = {
+    Choice.ACCEPT: "accept ",
+    Choice.DECLINE: "decline",
+    Choice.SKIP: "skip   ",
+}
+
+CONFIRM_PROMPT = "\n[y]es, do it  [e]dit  [n]o, cancel: "
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -89,7 +122,17 @@ def _register_accept(verbs: argparse._SubParsersAction) -> None:
         help="Review and accept pending repository invitations.",
         description=(
             "Review the repository invitations sent to you, then accept or "
-            "decline them together."
+            "decline them together. Nothing is accepted or declined until the "
+            "whole list has been reviewed and the choices confirmed."
+        ),
+    )
+
+    parser.add_argument(
+        "--org",
+        metavar="ORG",
+        help=(
+            "Only review invitations from this organization. Without it, every "
+            "pending invitation is listed, including any unrelated to a course."
         ),
     )
 
@@ -169,11 +212,187 @@ def handle_send(args: argparse.Namespace) -> int:
 
 
 def handle_accept(args: argparse.Namespace) -> int:
-    """Run ``admin invites accept`` and return its exit code.
+    """Run ``admin invites accept`` and return its exit code."""
+    try:
+        invitations = list_pending(args.org)
+    except AdapterError as error:
+        print(f"{PROGRAM} accept: {error}", file=sys.stderr)
+        return 2
 
-    Registered ahead of its implementation so that the grammar is settled; the
-    review flow arrives with the change that implements it.
+    if not invitations:
+        print(_nothing_pending(args.org))
+        return 0
+
+    if not _interactive(sys.stdin):
+        print(render_pending(invitations))
+        print(
+            f"{PROGRAM} accept: reviewing invitations needs a terminal. "
+            "Nothing was changed.",
+            file=sys.stderr,
+        )
+        return 2
+
+    review = review_interactively(begin_review(invitations), sys.stdin, sys.stdout)
+
+    if review.stage is not Stage.CONFIRMED:
+        print("Cancelled. Nothing was changed.")
+        return 0
+
+    results = apply_review(review)
+    print(render_actions(results, review))
+
+    return 0 if all(result.ok for result in results) else 1
+
+
+def _interactive(stream: TextIO) -> bool:
+    """Whether there is a terminal to ask questions of.
+
+    A review cannot be conducted down a pipe, and blocking on a prompt that
+    nobody can answer is worse than saying so.
     """
-    print(f"{PROGRAM} accept: not implemented yet", file=sys.stderr)
+    return bool(getattr(stream, "isatty", lambda: False)())
 
-    return 2
+
+def review_interactively(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
+    """Ask about each invitation, then about the whole set.
+
+    The decisions belong to the command layer; this only turns keystrokes into
+    them and prints what the state machine is asking about.
+    """
+    while review.stage in (Stage.REVIEWING, Stage.CONFIRMING):
+        if review.stage is Stage.REVIEWING:
+            review = _review_one(review, stdin, stdout)
+        else:
+            review = _ask_to_confirm(review, stdin, stdout)
+
+    return review
+
+
+def _review_one(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
+    invitation = review.current
+
+    if invitation is None:
+        return review
+
+    print(
+        _describe(invitation, review.position + 1, len(review.invitations)),
+        file=stdout,
+    )
+
+    # Pressing Return keeps whatever is already chosen. On the first pass that
+    # is always skip, so the safe answer is still the one needing no thought;
+    # on an edit pass it means returning to one entry cannot quietly undo the
+    # rest. An unrecognised answer does the same, and the confirmation screen
+    # is where a mistyped one is caught.
+    default = review.choices[review.position]
+
+    answer = _ask(_review_prompt(default), stdin, stdout)
+
+    if answer in ("q", "quit"):
+        return cancel(review)
+
+    return choose(review, REVIEW_ANSWERS.get(answer, default))
+
+
+def _review_prompt(default: Choice) -> str:
+    return f"[a]ccept  [d]ecline  [s]kip  [q]uit (default: {default.value}): "
+
+
+def _ask_to_confirm(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
+    print(render_choices(review), file=stdout)
+
+    answer = _ask(CONFIRM_PROMPT, stdin, stdout)
+
+    if answer in ("y", "yes"):
+        return confirm(review)
+
+    if answer in ("e", "edit"):
+        return edit(review)
+
+    return cancel(review)
+
+
+def _ask(prompt: str, stdin: TextIO, stdout: TextIO) -> str:
+    """Read one answer, treating an interrupted read as a cancellation."""
+    print(prompt, end="", file=stdout, flush=True)
+
+    try:
+        answer = stdin.readline()
+    except KeyboardInterrupt:
+        return "q"
+
+    if not answer:
+        return "q"
+
+    return answer.strip().casefold()
+
+
+def _describe(invitation: RepositoryInvitation, index: int, total: int) -> str:
+    lines = [f"\n{index} of {total}  {invitation.display}"]
+
+    if invitation.inviter:
+        lines.append(f"{INDENT}invited by @{invitation.inviter}")
+
+    return "\n".join(lines)
+
+
+def _nothing_pending(org: str | None) -> str:
+    if org:
+        return f"No invitations from {org} are waiting for you."
+
+    return "No invitations are waiting for you."
+
+
+def render_pending(invitations: Sequence[RepositoryInvitation]) -> str:
+    """List what is pending, for when there is no terminal to review it in."""
+    lines = [f"{_count_invitations(len(invitations))} waiting for you:", ""]
+    lines += [f"{INDENT}{invitation.display}" for invitation in invitations]
+
+    return "\n".join(lines)
+
+
+def render_choices(review: Review) -> str:
+    """Show every choice before anything is acted on."""
+    lines = ["", "You chose:"]
+
+    for invitation, choice in review.decided:
+        lines.append(f"{INDENT}{CHOICE_LABELS[choice]}  {invitation.repository}")
+
+    if not review.decided:
+        lines.append(f"{INDENT}nothing")
+
+    if review.skipped:
+        lines.append("")
+        lines.append(f"{INDENT}{len(review.skipped)} skipped, and left pending.")
+
+    return "\n".join(lines)
+
+
+def render_actions(
+    results: Sequence[ActionResult],
+    review: Review,
+) -> str:
+    """Report what was done, once it has been."""
+    lines = [""]
+
+    for result in results:
+        line = f"{INDENT}{CHOICE_LABELS[result.choice]}  {result.invitation.repository}"
+        lines.append(f"{line} — {result.error}" if result.error else line)
+
+    counts = [
+        (sum(1 for r in results if r.ok and r.choice is Choice.ACCEPT), "accepted"),
+        (sum(1 for r in results if r.ok and r.choice is Choice.DECLINE), "declined"),
+        (sum(1 for r in results if not r.ok), "failed"),
+        (len(review.skipped), "left pending"),
+    ]
+
+    stated = [f"{count} {label}" for count, label in counts if count]
+
+    lines.append("")
+    lines.append(", ".join(stated) if stated else "Nothing to do.")
+
+    return "\n".join(lines)
+
+
+def _count_invitations(total: int) -> str:
+    return "1 invitation is" if total == 1 else f"{total} invitations are"
