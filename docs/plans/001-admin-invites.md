@@ -108,7 +108,7 @@ Each task is independently delegatable and should end with the project's validat
 
 6. [+] **Test `admin invites send`.** Pure functions called directly with plain data; effectful functions monkeypatched on the module object, as `test_setup_check.py` does. Cover: dry run makes no API calls, org derivation from each accepted config-ref spelling, an empty roster, already-a-member versus newly-invited reporting, and a partial failure. Include a `test_argument_surface_is_stable` guard test mirroring the existing one, since CI invokes the CLI directly.
 
-7. [ ] **Add repository-invitation adapter functions.** `GET /user/repository_invitations` to list, `PATCH /user/repository_invitations/{id}` to accept, `DELETE /user/repository_invitations/{id}` to decline. Pure helpers to shape the listing into dataclasses and to filter by org. Tests as in task 3.
+7. [+] **Add repository-invitation adapter functions.** `GET /user/repository_invitations` to list, `PATCH /user/repository_invitations/{id}` to accept, `DELETE /user/repository_invitations/{id}` to decline. Pure helpers to shape the listing into dataclasses and to filter by org. Tests as in task 3.
 
 8. [ ] **Implement `admin invites accept`.** The review/confirm/edit/cancel flow as a pure state machine over plain data, so it can be tested without a terminal, with a thin `input()`-driven shell around it. Bulk-process only on confirmation. Handle a non-TTY stdin explicitly rather than blocking.
 

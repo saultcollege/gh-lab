@@ -14,6 +14,8 @@ REPO_FIELDS = ("name", "owner", "isPrivate", "templateRepository")
 # Course configuration changes rarely, and this is fetched on every invocation.
 FILE_CACHE_DURATION = "1h"
 
+REPOSITORY_INVITATIONS = "user/repository_invitations"
+
 
 def _run_text(args: Sequence[str]) -> str:
     """Run a gh command and return its standard output."""
@@ -176,3 +178,51 @@ def set_org_membership(org: str, username: str, role: str = "member") -> str:
         raise AdapterError(f"gh did not report a membership state for {username}")
 
     return state
+
+
+def list_repository_invitations() -> tuple[dict[str, Any], ...]:
+    """Return the repository invitations pending for the authenticated user.
+
+    Paginated, because an instructor is invited once per student repository and
+    a class of any size exceeds the default page of 30. Pagination is the reason
+    for ``--slurp``: ``--paginate`` alone emits one JSON array per page, which is
+    several JSON documents concatenated rather than one, and cannot be parsed.
+    ``--slurp`` wraps the pages in an outer array instead.
+
+    Deliberately not cached: someone reviewing invitations has usually just
+    asked a student to send one.
+    """
+    pages = _run_json(["api", "--paginate", "--slurp", REPOSITORY_INVITATIONS])
+
+    if not isinstance(pages, list):
+        raise AdapterError("unexpected response when listing repository invitations")
+
+    invitations: list[dict[str, Any]] = []
+
+    for page in pages:
+        if not isinstance(page, list):
+            raise AdapterError(
+                "unexpected response when listing repository invitations"
+            )
+
+        invitations.extend(entry for entry in page if isinstance(entry, dict))
+
+    return tuple(invitations)
+
+
+def accept_repository_invitation(invitation_id: int) -> None:
+    """Accept one repository invitation.
+
+    Answers 204 with no body, so there is nothing to return and nothing to
+    parse; a failure arrives as an :class:`AdapterError` like any other.
+    """
+    _run_text(_api_args(f"{REPOSITORY_INVITATIONS}/{invitation_id}", method="PATCH"))
+
+
+def decline_repository_invitation(invitation_id: int) -> None:
+    """Decline one repository invitation.
+
+    Declining is not undoable through this API: the invitation is gone and the
+    student would have to send another.
+    """
+    _run_text(_api_args(f"{REPOSITORY_INVITATIONS}/{invitation_id}", method="DELETE"))

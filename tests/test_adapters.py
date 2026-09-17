@@ -256,3 +256,106 @@ def test_a_membership_response_that_is_not_an_object_is_rejected(monkeypatch):
 
     with pytest.raises(AdapterError, match="unexpected response"):
         github_cli.set_org_membership("course-org", "student")
+
+
+# --- repository invitations ------------------------------------------------
+
+
+def test_listing_invitations_flattens_the_pages(monkeypatch):
+    """--slurp returns an array of pages, not an array of invitations."""
+    pages = [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: FakeCompleted(stdout=json.dumps(pages))
+    )
+
+    invitations = github_cli.list_repository_invitations()
+
+    assert [entry["id"] for entry in invitations] == [1, 2, 3]
+
+
+def test_listing_invitations_paginates_and_slurps(monkeypatch):
+    """Without --slurp the pages are separate documents and will not parse."""
+    seen = []
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda args, **k: (seen.append(args), FakeCompleted(stdout="[[]]"))[1],
+    )
+
+    github_cli.list_repository_invitations()
+
+    (argv,) = seen
+    assert "--paginate" in argv
+    assert "--slurp" in argv
+    assert argv[-1] == "user/repository_invitations"
+
+
+def test_listing_invitations_is_not_cached(monkeypatch):
+    """Someone reviewing invitations has usually just asked for one."""
+    seen = []
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda args, **k: (seen.append(args), FakeCompleted(stdout="[[]]"))[1],
+    )
+
+    github_cli.list_repository_invitations()
+
+    assert "--cache" not in seen[0]
+
+
+def test_an_invitations_response_that_is_not_paged_is_rejected(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: FakeCompleted(stdout="{}"))
+
+    with pytest.raises(AdapterError, match="unexpected response"):
+        github_cli.list_repository_invitations()
+
+
+def test_accepting_an_invitation_sends_a_patch(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda args, **k: (seen.append(args), FakeCompleted(stdout=""))[1],
+    )
+
+    github_cli.accept_repository_invitation(42)
+
+    (argv,) = seen
+    assert argv[argv.index("-X") + 1] == "PATCH"
+    assert argv[-1] == "user/repository_invitations/42"
+
+
+def test_declining_an_invitation_sends_a_delete(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda args, **k: (seen.append(args), FakeCompleted(stdout=""))[1],
+    )
+
+    github_cli.decline_repository_invitation(42)
+
+    (argv,) = seen
+    assert argv[argv.index("-X") + 1] == "DELETE"
+    assert argv[-1] == "user/repository_invitations/42"
+
+
+def test_an_empty_body_is_not_parsed_as_json(monkeypatch):
+    """Both answer 204 with no body; parsing it would fail for no reason."""
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: FakeCompleted(stdout=""))
+
+    assert github_cli.accept_repository_invitation(1) is None
+    assert github_cli.decline_repository_invitation(1) is None
+
+
+def test_a_failed_acceptance_becomes_an_adapter_error(monkeypatch):
+    """An invitation someone already accepted or revoked is gone."""
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: FakeCompleted(stderr="HTTP 404: Not Found", returncode=1),
+    )
+
+    with pytest.raises(AdapterError, match="404"):
+        github_cli.accept_repository_invitation(42)

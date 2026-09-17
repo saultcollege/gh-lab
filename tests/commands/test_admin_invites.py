@@ -17,9 +17,13 @@ from gh_lab.commands.admin_invites import shell
 from gh_lab.commands.admin_invites.command import (
     InviteResult,
     Outcome,
+    RepositoryInvitation,
     SendReport,
     build_roster,
+    invitations_from_org,
     invite_everyone,
+    parse_invitation,
+    parse_invitations,
     result_for,
     run_send,
 )
@@ -416,3 +420,110 @@ def test_a_dry_run_lists_the_roster_and_says_nothing_was_sent():
     assert "Pro Fessor (@prof)" in output
     assert "Stu Dent (@student)" in output
     assert "Nothing was sent" in output
+
+
+# --- Shaping the invitations listing ---------------------------------------
+
+
+def invitation_entry(identifier=1, full_name="student/csd217-lab-1", **overrides):
+    """One entry as GitHub returns it, trimmed to the fields that are read."""
+    entry = {
+        "id": identifier,
+        "repository": {
+            "name": full_name.split("/")[1],
+            "full_name": full_name,
+            "owner": {"login": full_name.split("/")[0]},
+        },
+        "inviter": {"login": "student"},
+        "permissions": "write",
+    }
+    entry.update(overrides)
+
+    return entry
+
+
+def test_an_invitation_is_shaped_from_its_entry():
+    invitation = parse_invitation(invitation_entry())
+
+    assert invitation == RepositoryInvitation(
+        id=1,
+        repository="student/csd217-lab-1",
+        owner="student",
+        inviter="student",
+        permission="write",
+    )
+
+
+def test_an_invitation_without_an_inviter_is_still_usable():
+    """GitHub types inviter as nullable, and the id is what acting on it needs."""
+    invitation = parse_invitation(invitation_entry(inviter=None))
+
+    assert invitation is not None
+    assert invitation.inviter is None
+
+
+def test_an_owner_is_taken_from_the_full_name_when_absent():
+    entry = invitation_entry()
+    entry["repository"].pop("owner")
+
+    assert parse_invitation(entry).owner == "student"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"repository": {"full_name": "student/lab"}},
+        {"id": 1},
+        {"id": "not-a-number", "repository": {"full_name": "student/lab"}},
+        {"id": 1, "repository": {"full_name": ""}},
+        {"id": 1, "repository": "not-an-object"},
+    ],
+)
+def test_an_entry_that_cannot_be_acted_on_is_dropped(entry):
+    """Without an id and a repository there is nothing to accept or show."""
+    assert parse_invitation(entry) is None
+
+
+def test_unusable_entries_do_not_hide_the_usable_ones():
+    entries = [invitation_entry(1), {"id": 2}, invitation_entry(3, "student/lab-2")]
+
+    assert [i.id for i in parse_invitations(entries)] == [1, 3]
+
+
+def test_an_empty_listing_shapes_to_nothing():
+    assert parse_invitations([]) == ()
+
+
+def test_the_display_names_the_repository_and_permission():
+    assert parse_invitation(invitation_entry()).display == (
+        "student/csd217-lab-1 (write)"
+    )
+
+
+# --- Narrowing to one organization -----------------------------------------
+
+
+INVITATIONS = (
+    RepositoryInvitation(1, "course-org/lab-1", "course-org"),
+    RepositoryInvitation(2, "someone-else/notes", "someone-else"),
+    RepositoryInvitation(3, "Course-Org/lab-2", "Course-Org"),
+)
+
+
+def test_no_organization_keeps_everything():
+    assert invitations_from_org(INVITATIONS, None) == INVITATIONS
+
+
+def test_an_organization_narrows_the_listing():
+    """Faculty have invitations that have nothing to do with the course."""
+    kept = invitations_from_org(INVITATIONS, "course-org")
+
+    assert [invitation.id for invitation in kept] == [1, 3]
+
+
+def test_the_organization_is_matched_ignoring_case():
+    assert [i.id for i in invitations_from_org(INVITATIONS, "COURSE-ORG")] == [1, 3]
+
+
+def test_an_organization_with_no_invitations_keeps_nothing():
+    assert invitations_from_org(INVITATIONS, "other-org") == ()

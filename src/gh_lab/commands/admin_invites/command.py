@@ -7,7 +7,7 @@ kept separate and deliberately thin.
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -211,4 +211,101 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
         roster=roster,
         results=() if dry_run else invite_everyone(reference.owner, roster),
         dry_run=dry_run,
+    )
+
+
+@dataclass(frozen=True)
+class RepositoryInvitation:
+    """An invitation for the current user to collaborate on one repository.
+
+    Attributes:
+        id: GitHub's identifier, needed to accept or decline it.
+        repository: The full ``owner/name`` of the repository.
+        owner: Who owns it — a student, for a lab repository.
+        inviter: Who sent the invitation, when GitHub said.
+        permission: The access the invitation grants.
+    """
+
+    id: int
+    repository: str
+    owner: str
+    inviter: str | None = None
+    permission: str | None = None
+
+    @property
+    def display(self) -> str:
+        """A human-readable identification, e.g. ``org/lab-1 (write)``."""
+        return (
+            f"{self.repository} ({self.permission})"
+            if self.permission
+            else (self.repository)
+        )
+
+
+def parse_invitation(entry: Mapping[str, object]) -> RepositoryInvitation | None:
+    """Shape one entry of the invitations listing.
+
+    Returns ``None`` for an entry without the identifier and repository needed
+    to act on it. GitHub's schema makes both non-nullable, so this should not
+    happen; skipping the entry rather than raising follows what listing
+    collaborators already does, and keeps one odd row from hiding a whole class
+    of invitations that are perfectly usable.
+
+    Pure: takes already-parsed JSON and returns plain data.
+    """
+    identifier = entry.get("id")
+    repository = entry.get("repository")
+
+    if not isinstance(identifier, int) or not isinstance(repository, dict):
+        return None
+
+    full_name = repository.get("full_name")
+    owner = repository.get("owner")
+
+    if not isinstance(full_name, str) or not full_name:
+        return None
+
+    login = owner.get("login") if isinstance(owner, dict) else None
+    inviter = entry.get("inviter")
+    permission = entry.get("permissions")
+
+    return RepositoryInvitation(
+        id=identifier,
+        repository=full_name,
+        owner=login if isinstance(login, str) else full_name.split("/")[0],
+        inviter=inviter.get("login") if isinstance(inviter, dict) else None,
+        permission=permission if isinstance(permission, str) else None,
+    )
+
+
+def parse_invitations(
+    entries: Sequence[Mapping[str, object]],
+) -> tuple[RepositoryInvitation, ...]:
+    """Shape the invitations listing, dropping any entry that cannot be acted on."""
+    shaped = (parse_invitation(entry) for entry in entries)
+
+    return tuple(invitation for invitation in shaped if invitation is not None)
+
+
+def invitations_from_org(
+    invitations: Sequence[RepositoryInvitation],
+    org: str | None,
+) -> tuple[RepositoryInvitation, ...]:
+    """Narrow a listing to one organization.
+
+    Faculty generally have invitations that have nothing to do with the course
+    in front of them. ``None`` means no narrowing at all. Owners are compared
+    without regard to case, as GitHub handles are elsewhere in this project.
+
+    Pure: takes plain data and returns plain data.
+    """
+    if org is None:
+        return tuple(invitations)
+
+    wanted = org.casefold()
+
+    return tuple(
+        invitation
+        for invitation in invitations
+        if invitation.owner.casefold() == wanted
     )
