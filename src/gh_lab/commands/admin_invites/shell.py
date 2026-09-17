@@ -155,6 +155,7 @@ def render_roster(report: SendReport) -> str:
     lines = [
         f"Would invite {_count(len(report.roster))} to {report.org}",
         f"from {report.source}",
+        *_skipped_self(report),
     ]
 
     if report.roster:
@@ -172,6 +173,7 @@ def render_results(report: SendReport) -> str:
     lines = [
         f"Inviting {_count(len(report.roster))} to {report.org}",
         f"from {report.source}",
+        *_skipped_self(report),
     ]
 
     if report.results:
@@ -185,6 +187,17 @@ def render_results(report: SendReport) -> str:
     lines.append(_summary(report))
 
     return "\n".join(lines)
+
+
+def _skipped_self(report: SendReport) -> list[str]:
+    """Say so when the roster named the person running the command.
+
+    Left out silently it would look like the configuration was misread.
+    """
+    if report.skipped_self is None:
+        return []
+
+    return [f"not inviting you, {report.skipped_self.display}"]
 
 
 def _summary(report: SendReport) -> str:

@@ -68,10 +68,15 @@ def _subparser(parser: argparse.ArgumentParser, name: str) -> argparse.ArgumentP
     raise AssertionError(f"{name} is not registered")
 
 
-def stub_github(monkeypatch, states=None, failing=()):
-    """Answer every membership call from ``states``, failing for ``failing``."""
+def stub_github(monkeypatch, states=None, failing=(), signed_in_as="somebody-else"):
+    """Answer every membership call from ``states``, failing for ``failing``.
+
+    Also answers who is signed in, so that nothing here reaches the network.
+    """
     states = states or {}
     seen = []
+
+    monkeypatch.setattr(github_cli, "current_user", lambda: signed_in_as)
 
     def set_org_membership(org, username, role):
         seen.append((org, username, role))
@@ -87,8 +92,13 @@ def stub_github(monkeypatch, states=None, failing=()):
 
 
 def stub_config(monkeypatch, config=COURSE_CONFIG):
-    """Answer the course configuration fetch without touching the network."""
+    """Answer the course configuration fetch without touching the network.
+
+    Answers who is signed in too, because run_send asks in order to leave them
+    off the roster, and a test that forgot would reach the real API.
+    """
     monkeypatch.setattr(command_module, "load_course_config", lambda reference: config)
+    monkeypatch.setattr(github_cli, "current_user", lambda: "somebody-else")
 
 
 # --- CLI wiring ------------------------------------------------------------
@@ -1024,3 +1034,91 @@ def test_quitting_is_not_coloured():
     )
 
     assert "  [q]uit " in output.getvalue()
+
+
+# --- Not inviting yourself -------------------------------------------------
+
+
+def test_the_person_running_the_command_is_set_aside():
+    """Faculty list themselves, and inviting yourself is never what was meant."""
+    kept, you = command_module.set_self_aside((PROF, STUDENT, OTHER), "prof")
+
+    assert kept == (STUDENT, OTHER)
+    assert you is PROF
+
+
+def test_you_are_matched_ignoring_case():
+    kept, you = command_module.set_self_aside((PROF, STUDENT), "PROF")
+
+    assert kept == (STUDENT,)
+    assert you is PROF
+
+
+def test_a_roster_without_you_is_left_alone():
+    kept, you = command_module.set_self_aside((PROF, STUDENT), "nobody")
+
+    assert kept == (PROF, STUDENT)
+    assert you is None
+
+
+def test_you_are_not_invited(monkeypatch):
+    stub_config(monkeypatch)
+    seen = stub_github(monkeypatch, signed_in_as="prof")
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert [call[1] for call in seen] == ["student", "other"]
+    assert report.skipped_self is PROF
+    assert PROF not in report.roster
+
+
+def test_a_dry_run_also_leaves_you_out(monkeypatch):
+    stub_config(monkeypatch)
+    stub_github(monkeypatch, signed_in_as="prof")
+
+    report = run_send(config_file=CONFIG_REF, dry_run=True)
+
+    assert report.roster == (STUDENT, OTHER)
+    assert report.skipped_self is PROF
+
+
+def test_being_left_out_is_reported_rather_than_silent(monkeypatch):
+    """Otherwise it reads as though the configuration had been misread."""
+    stub_config(monkeypatch)
+    stub_github(monkeypatch, signed_in_as="prof")
+
+    report = run_send(config_file=CONFIG_REF, dry_run=True)
+
+    assert "not inviting you" in shell.render_roster(report)
+
+
+def test_the_results_say_so_too(monkeypatch):
+    stub_config(monkeypatch)
+    stub_github(monkeypatch, signed_in_as="prof")
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert "not inviting you" in shell.render_results(report)
+
+
+def test_nothing_is_said_when_you_are_not_on_the_roster(monkeypatch):
+    stub_config(monkeypatch)
+    stub_github(monkeypatch, signed_in_as="nobody")
+
+    report = run_send(config_file=CONFIG_REF, dry_run=True)
+
+    assert report.skipped_self is None
+    assert "not inviting you" not in shell.render_roster(report)
+
+
+def test_not_knowing_who_is_signed_in_stops_the_command(monkeypatch):
+    """Without it the command cannot tell it is about to act on the caller."""
+    stub_config(monkeypatch)
+
+    def unknown():
+        raise AdapterError("gh auth login required")
+
+    monkeypatch.setattr(github_cli, "current_user", unknown)
+
+    with pytest.raises(AdapterError, match="auth login"):
+        run_send(config_file=CONFIG_REF, dry_run=True)

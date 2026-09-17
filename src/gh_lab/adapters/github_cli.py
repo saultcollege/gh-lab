@@ -226,3 +226,21 @@ def decline_repository_invitation(invitation_id: int) -> None:
     student would have to send another.
     """
     _run_text(_api_args(f"{REPOSITORY_INVITATIONS}/{invitation_id}", method="DELETE"))
+
+
+def current_user() -> str:
+    """The login of the user gh is authenticated as.
+
+    Used to keep a command from acting on the person running it.
+    """
+    result = _run_json(["api", "user"])
+
+    if not isinstance(result, dict):
+        raise AdapterError("unexpected response when asking who is signed in")
+
+    login = result.get("login")
+
+    if not isinstance(login, str) or not login:
+        raise AdapterError("gh did not report who is signed in")
+
+    return login

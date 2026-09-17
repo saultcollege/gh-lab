@@ -130,6 +130,12 @@ Check before sending anything:
 `--dry-run` resolves the configuration and prints the organization and the full
 roster without contacting anyone.
 
+You are never invited to your own course. Faculty list themselves in the course
+configuration, and inviting yourself would ask GitHub to set your own membership
+to *member* — at best doing nothing, at worst removing the ownership that let
+you run the command. Your entry is named in the output so the omission is
+visible rather than looking like a misread configuration.
+
 Re-running is safe. Someone already in the organization is reported as such
 rather than invited again, and one bad entry does not stop the rest of the
 roster, so a typo can be fixed and the command run again.

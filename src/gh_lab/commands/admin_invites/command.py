@@ -66,6 +66,8 @@ class SendReport:
         roster: Everyone the command intended to invite, in order.
         results: What happened to each of them.
         dry_run: Whether the invitations were only described, not sent.
+        skipped_self: The roster entry for whoever ran the command, when they
+            were on it. They are never invited; see :func:`set_self_aside`.
     """
 
     org: str
@@ -73,6 +75,7 @@ class SendReport:
     roster: tuple[Person, ...] = ()
     results: tuple[InviteResult, ...] = ()
     dry_run: bool = False
+    skipped_self: Person | None = None
 
     @property
     def invited(self) -> tuple[InviteResult, ...]:
@@ -118,6 +121,39 @@ def build_roster(config: CourseConfig) -> tuple[Person, ...]:
         roster.append(person)
 
     return tuple(roster)
+
+
+def set_self_aside(
+    roster: Sequence[Person],
+    handle: str,
+) -> tuple[tuple[Person, ...], Person | None]:
+    """Separate whoever is running the command from the rest of the roster.
+
+    Faculty list themselves in their own course configuration, so the person
+    running this is usually on it. Inviting yourself is never what was meant:
+    only an owner of the organization can invite anyone, so the caller is
+    already a member, and the request asks GitHub to set their membership to
+    ``member`` — at best doing nothing, at worst taking away the ownership that
+    let them run the command at all.
+
+    Handles are compared without regard to case, as they are elsewhere.
+
+    Returns:
+        The rest of the roster, and the entry set aside if there was one.
+
+    Pure: takes plain data and returns plain data.
+    """
+    wanted = handle.casefold()
+    kept: list[Person] = []
+    found: Person | None = None
+
+    for person in roster:
+        if found is None and person.github.casefold() == wanted:
+            found = person
+        else:
+            kept.append(person)
+
+    return tuple(kept), found
 
 
 def result_for(person: Person, state: str) -> InviteResult:
@@ -196,14 +232,20 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
     The organization is not configured separately: it is, by definition, the
     owner of the repository the course configuration lives in.
 
+    Whoever is running the command is never invited, even when the course
+    configuration lists them.
+
     Raises:
-        AdapterError: The course configuration could not be fetched.
+        AdapterError: The course configuration could not be fetched, or gh could
+            not say who is signed in. The second is fatal rather than ignored:
+            without knowing who is running this, the command cannot tell that it
+            is about to act on them.
         ConfigError: The reference was malformed, or the file it named was not a
             usable course configuration.
     """
     reference = parse_course_config_ref(config_file, CONFIG_FILE_OPTION)
     config = load_course_config(reference)
-    roster = build_roster(config)
+    roster, you = set_self_aside(build_roster(config), github_cli.current_user())
 
     return SendReport(
         org=reference.owner,
@@ -211,6 +253,7 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
         roster=roster,
         results=() if dry_run else invite_everyone(reference.owner, roster),
         dry_run=dry_run,
+        skipped_self=you,
     )
 
 
