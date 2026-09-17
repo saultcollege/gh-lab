@@ -231,11 +231,12 @@ ADVICE: dict[Advice, AdviceText] = {
             "Look for 'not checked' above. You are signed in — the other "
             "checks reached GitHub — but a Codespace is given a token that can "
             "only see the repository it belongs to, so it cannot read your "
-            "course's configuration in another organization. That is expected "
-            "here and is nothing you have done wrong; everything else was "
-            "checked. To run that last check too, sign in as yourself — "
-            "clearing {token} first, because the GitHub CLI will not store "
-            "new credentials while it is set:"
+            "course's configuration in another organization. Everything else "
+            "was checked, and this is nothing you have done wrong: tell your "
+            "instructor, because a course whose faculty list is public does "
+            "not have this problem. To run that last check now, sign in as "
+            "yourself — clearing {token} first, because the GitHub CLI will "
+            "not store new credentials while it is set:"
         ),
         lines=("unset GH_TOKEN GITHUB_TOKEN", "gh auth login"),
         note=(

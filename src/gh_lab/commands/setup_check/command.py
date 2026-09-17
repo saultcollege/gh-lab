@@ -201,27 +201,32 @@ def _course_reason(error: str | None, *, token_scoped: bool = False) -> str:
     """Explain why the faculty check could not run.
 
     GitHub answers 404 for a repository you cannot see as well as for one that
-    does not exist, so a failure cannot tell the two apart. Name both, since the
-    student can act on one of them and only their instructor can act on the other.
+    does not exist, so a failure cannot tell the two apart.
+
+    The faculty list is meant to be public precisely so that this does not
+    happen — see ``private_counterpart`` in :mod:`gh_lab.course_config`. Both
+    messages therefore describe a course that has not been split yet, which is
+    the only arrangement in which either can occur.
 
     Args:
         error: What the failed read reported, if anything.
         token_scoped: Whether the token in use is scoped to this repository, as
-            a Codespace's is. Neither of the usual two causes applies then —
-            the student may well be a member of the organization — so saying so
-            would send them to fix something that is not broken.
+            a Codespace's is. Membership is then beside the point — the student
+            may well be a member — so saying otherwise would send them to fix
+            something that is not broken.
     """
     if token_scoped:
         base = (
             "the course configuration could not be read, because the token this "
-            "environment provides can only see this repository. That is expected "
-            "in a Codespace and is nothing you have done wrong"
+            "environment provides can only see this repository. That happens in "
+            "a Codespace when a course keeps its faculty list private, and is "
+            "nothing you have done wrong — tell your instructor"
         )
     else:
         base = (
-            "the course configuration could not be read. Either you are not yet a "
-            "member of the course organization, or the course configuration has "
-            "moved — ask your instructor if this does not resolve itself"
+            "the course configuration could not be read. It may have moved, or "
+            "it may be private and you not yet a member of the course "
+            "organization — ask your instructor if this does not resolve itself"
         )
 
     return f"{base} ({error})" if error else base
@@ -761,10 +766,10 @@ def run(
 
     actions = in_github_actions(env)
 
-    # A workflow token cannot read a private repository in the course
-    # organization, so do not make a request that is bound to fail. The faculty
-    # check, the only thing the course configuration feeds, is skipped in
-    # Actions anyway.
+    # The faculty check, the only thing the course configuration feeds, is not
+    # built at all in Actions, because a workflow token cannot list
+    # collaborators. Fetching the configuration there would be work thrown
+    # away, whether or not the file is one a workflow token could read.
     course = CourseConfigResult()
     if not actions:
         course = load_course_config(lab_config.course_config)

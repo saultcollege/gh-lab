@@ -14,7 +14,7 @@ Everything here is pure: parsing takes already-loaded data and returns
 structured values, so it can be tested without a repository or the network.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 GITHUB_HOST = "github.com"
@@ -129,6 +129,36 @@ class CourseConfigRef:
         return f"{self.owner}/{self.repo}/{self.path}{suffix}"
 
 
+# The course roster is split across two repositories: a public one holding the
+# faculty, and a private one holding the students, named the same with this
+# appended. Faculty are public information; an enrolled student's name and
+# GitHub handle are not.
+PRIVATE_REPO_SUFFIX = "-private"
+
+
+def private_counterpart(reference: CourseConfigRef) -> CourseConfigRef:
+    """Where the private roster for a public course configuration lives.
+
+    The split exists so that `setup-check` can read the faculty list with
+    whatever authentication its environment already has. A Codespace is given a
+    token scoped to the one repository it belongs to, so a private repository
+    in the course organization is out of reach there; a public one is not.
+
+    Derived by convention rather than configured, so that one reference locates
+    both files and no command has to be told two. The path is unchanged, which
+    is what lets several deliveries of a course (``26f.json``, ``26w.json``)
+    sit side by side in both repositories.
+
+    A reference already naming the private repository is returned unchanged,
+    so a course keeping everything in one private file is not sent looking for
+    ``course-info-private-private``.
+    """
+    if reference.repo.endswith(PRIVATE_REPO_SUFFIX):
+        return reference
+
+    return replace(reference, repo=f"{reference.repo}{PRIVATE_REPO_SUFFIX}")
+
+
 @dataclass(frozen=True)
 class CourseConfig:
     """The contents of the course configuration document.
@@ -137,6 +167,9 @@ class CourseConfig:
     cannot read a private repository in the course organization, so everything
     ``setup-check`` needs about the lab itself is stated in ``.lab/config.json``
     instead.
+
+    ``faculty`` and ``students`` may come from two different files — see
+    :func:`private_counterpart`.
     """
 
     faculty: tuple[Person, ...]
@@ -265,3 +298,22 @@ def parse_course_config(data: Any, source: str) -> CourseConfig:
             () if students is None else parse_people(students, source, "students")
         ),
     )
+
+
+def parse_roster(data: Any, source: str) -> tuple[Person, ...]:
+    """The enrolled students from a private roster document.
+
+    A roster holds only ``students``; the faculty it belongs with are public
+    and live in the other file, so ``faculty`` is neither required nor read
+    here. A file carrying both still parses — its faculty are simply ignored —
+    which is what lets a course split an existing single file by copying it.
+
+    An absent ``students`` is an empty roster rather than an error: a course
+    may be configured before anyone has enrolled.
+    """
+    if not isinstance(data, dict):
+        raise ConfigError(f"{source} must contain a JSON object")
+
+    students = data.get("students")
+
+    return () if students is None else parse_people(students, source, "students")

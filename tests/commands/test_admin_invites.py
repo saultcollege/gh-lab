@@ -91,13 +91,27 @@ def stub_github(monkeypatch, states=None, failing=(), signed_in_as="somebody-els
     return seen
 
 
-def stub_config(monkeypatch, config=COURSE_CONFIG):
+def stub_config(monkeypatch, config=COURSE_CONFIG, students=None):
     """Answer the course configuration fetch without touching the network.
 
     Answers who is signed in too, because run_send asks in order to leave them
     off the roster, and a test that forgot would reach the real API.
+
+    Args:
+        config: What the primary file holds.
+        students: What the private roster beside it holds. ``None`` means there
+            is no private roster, which is the pre-split arrangement: the
+            students come from ``config`` itself.
     """
     monkeypatch.setattr(command_module, "load_course_config", lambda reference: config)
+
+    def load_students(reference):
+        if students is None:
+            raise AdapterError("gh: Not Found (HTTP 404)")
+
+        return tuple(students)
+
+    monkeypatch.setattr(command_module, "load_students", load_students)
     monkeypatch.setattr(github_cli, "current_user", lambda: "somebody-else")
 
 
@@ -1122,3 +1136,95 @@ def test_not_knowing_who_is_signed_in_stops_the_command(monkeypatch):
 
     with pytest.raises(AdapterError, match="auth login"):
         run_send(config_file=CONFIG_REF, dry_run=True)
+
+
+# --- The private roster beside the public configuration ----------------------
+#
+# Faculty are public so that setup-check can read them with whatever
+# authentication its environment already has; students are not. One reference
+# names the public file, and the roster is found beside it by convention.
+
+
+def test_students_come_from_the_private_roster(monkeypatch):
+    stub_config(
+        monkeypatch,
+        CourseConfig(faculty=(PROF,)),
+        students=(STUDENT, OTHER),
+    )
+    seen = stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert report.roster == (PROF, STUDENT, OTHER)
+    assert [username for _, username, _ in seen] == ["prof", "student", "other"]
+
+
+def test_the_report_names_both_files(monkeypatch):
+    stub_config(monkeypatch, CourseConfig(faculty=(PROF,)), students=(STUDENT,))
+    stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert report.source == CONFIG_REF
+    assert report.roster_source == (
+        "saultcollege-csd217/course-info-private/config/26f.json"
+    )
+    assert report.roster_error is None
+
+
+def test_a_missing_roster_falls_back_to_the_configuration_itself(monkeypatch):
+    """The pre-split arrangement, which must keep working untouched."""
+    stub_config(monkeypatch, COURSE_CONFIG, students=None)
+    stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert report.roster == (PROF, STUDENT, OTHER)
+    assert report.roster_source is None
+
+
+def test_an_unreadable_roster_is_reported_rather_than_passed_over(monkeypatch):
+    """A mistyped repository must not look like a course with nobody in it."""
+    stub_config(monkeypatch, CourseConfig(faculty=(PROF,)), students=None)
+    stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert report.roster == (PROF,)
+    assert report.roster_error
+    assert "no private roster was read" in shell.render_results(report)
+
+
+def test_a_reference_already_private_is_not_looked_up_twice(monkeypatch):
+    """A course keeping everyone in one private file reads exactly one file."""
+    reference = "saultcollege-csd217/course-info-private/config/26f.json"
+    fetched = []
+
+    monkeypatch.setattr(
+        command_module,
+        "load_course_config",
+        lambda ref: (fetched.append(str(ref)), COURSE_CONFIG)[1],
+    )
+
+    def fail(reference):
+        raise AssertionError("a private reference must not be derived again")
+
+    monkeypatch.setattr(command_module, "load_students", fail)
+    stub_github(monkeypatch)
+
+    report = run_send(config_file=reference)
+
+    assert fetched == [reference]
+    assert report.roster == (PROF, STUDENT, OTHER)
+    assert report.roster_source is None
+
+
+def test_someone_in_both_files_is_invited_once(monkeypatch):
+    """A faculty member who also appears on the roster is still one person."""
+    stub_config(monkeypatch, CourseConfig(faculty=(PROF,)), students=(PROF, STUDENT))
+    seen = stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert report.roster == (PROF, STUDENT)
+    assert [username for _, username, _ in seen] == ["prof", "student"]

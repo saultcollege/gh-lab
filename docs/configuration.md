@@ -97,9 +97,28 @@ It lives here rather than in the course configuration deliberately — see
 | `faculty` | yes | Who must be a collaborator on every student repository. May be empty. |
 | `students` | no | Who is enrolled in the course. Defaults to empty. |
 
-The file may live anywhere in a repository the students can read; point
-`course-config` at it. A private repository in the course organization works,
-provided students are members of that organization.
+The file is held in **two** repositories, named by convention:
+
+| Repository | Visibility | Holds |
+| --- | --- | --- |
+| `<org>/course-info` | public | `faculty` |
+| `<org>/course-info-private` | private | `students` |
+
+The path is the same in both, so one delivery of a course is one filename and
+several can sit side by side: `config/26f.json`, `config/26w.json`,
+`config/27f.json`.
+
+**Nothing ever names both.** `course-config` in `.lab/config.json` and
+`--config-file` both point at the *public* file; the private roster is found
+beside it by appending `-private` to the repository name. A reference that
+already names the private repository is used as-is, so a course that keeps
+everyone in one private file still works — see [One file or two](#one-file-or-two).
+
+The faculty list is public so that `setup-check` can read it with whatever
+authentication a student's environment already provides. That is what lets a
+student open a Codespace and run it with no sign-in at all; see
+[Why the split is where it is](#why-the-split-is-where-it-is). Student names
+and GitHub handles are not public, which is why they are held separately.
 
 Unrecognised properties are ignored, so a file still carrying a `course-org` or
 `branch-pattern` from an earlier version of this tool will not break.
@@ -133,6 +152,34 @@ invites everyone named in the file — faculty and students alike — to the cou
 organization. A course that never runs that command does not need a `students`
 array at all.
 
+## One file or two
+
+Both arrangements work, and `gh lab` tells them apart on its own.
+
+**Two files** is the arrangement above and the one to prefer: `faculty` in the
+public `course-info`, `students` in the private `course-info-private`. The
+private file needs no `faculty` array — if it carries one it is ignored, so a
+course can split an existing file simply by copying it and deleting the array
+it does not need from each.
+
+**One private file** holding both is what courses had before, and still works.
+`setup-check` cannot read it from a Codespace, which is the reason to move, but
+nothing breaks. `admin invites send` looks for the `-private` companion, does
+not find it, and uses the `students` the file itself carries. It says which
+files it read, so a mistyped repository name shows up as a message rather than
+as a course with nobody enrolled:
+
+```text
+Would invite 13 people to saultcollege-csd217
+from saultcollege-csd217/course-info/config/26f.json
+and saultcollege-csd217/course-info-private/config/26f.json
+```
+
+To migrate, publish `course-info` with the faculty list, move the roster to
+`course-info-private`, and re-point `course-config` in each lab template. Repos
+already created from an older template keep the reference they were built with,
+so leave the old file readable until that cohort is done.
+
 ## Why the split is where it is
 
 Only the course roster lives in the course configuration. Everything else is
@@ -158,20 +205,31 @@ account or organization as the one the codespace is for, and a lab repository
 lives in the student's personal account by design — see the check that it is
 not owned by the course organization.
 
-In a Codespace, therefore, only the faculty check is lost; everything else is
-stated in `.lab/config.json`. `setup-check` says so in as many words, and does
-**not** suggest `gh auth login`, which refuses to run while `GITHUB_TOKEN` is
-set. A student who wants that last check can clear the variable and sign in as
-themselves for that terminal, or run the check from a clone on their own
-machine.
+**This is why the faculty list is public.** It is the only thing `setup-check`
+needs from outside the student's own repository. Everything else it asks for —
+the repository's name, visibility and template, and its collaborator list — is
+about the student's own repository, which the Codespace token can read and
+write. Publish the faculty list and a Codespace needs no sign-in at all; keep
+it private and the faculty check is the one thing a student cannot run without
+arranging credentials of their own.
 
-So anything kept in the course configuration is unavailable to the check when it
-runs in Actions. The faculty check is already skipped there for a separate reason
-— listing collaborators needs write access the workflow token does not have — so
-putting the faculty list there costs nothing. `students` is read only by
-faculty-facing commands, which run on a faculty machine and never in Actions, so
-it costs nothing either. Putting `branch-pattern` there would have cost the
-branch check, which is the one most worth having on a pull request.
+Publishing it is cheap. Who teaches a course is not a secret, and the file
+holds nothing else. Who is *enrolled* is a different matter, which is why
+`students` lives in `course-info-private` and is never published.
+
+The remedies `setup-check` prints work in a Codespace too. Adding a
+collaborator needs write access, which the Codespace token has; only
+`gh repo rename`, `gh repo create` and changing visibility need more, and those
+are one-time steps a student takes when creating the repository rather than
+from inside it.
+
+So anything kept in the *private* file is unavailable to the check when it runs
+in Actions or a Codespace. The faculty check is skipped in Actions for a second
+reason anyway — listing collaborators needs write access the workflow token
+does not have. `students` is read only by faculty-facing commands, which run on
+a faculty machine and never in Actions, so keeping it private costs nothing.
+Putting `branch-pattern` in either file would have cost the branch check, which
+is the one most worth having on a pull request.
 
 `branch-pattern` therefore lives in exactly one place. If the course
 configuration could override it, a student would see one expected branch locally

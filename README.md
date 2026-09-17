@@ -81,8 +81,12 @@ faculty are collaborators, and that you are on the right branch.
 Anything it cannot check — because the GitHub CLI cannot reach GitHub, or
 because the token it is using cannot read your course's configuration — is
 reported as *not checked* rather than as a failure, and the summary explains
-which. In a Codespace the faculty check is expected to be skipped: a Codespace
-is given a token that can only see the repository it belongs to.
+which.
+
+It needs no sign-in beyond what your environment already provides. In a
+Codespace that means every check runs as soon as you open it, with nothing to
+set up, provided your course publishes its faculty list — see
+[docs/configuration.md](docs/configuration.md).
 
 Options:
 

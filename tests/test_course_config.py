@@ -5,9 +5,12 @@ import pytest
 from gh_lab.course_config import (
     ConfigError,
     CourseConfigRef,
+    Person,
     normalise_repo_ref,
     parse_course_config,
     parse_course_config_ref,
+    parse_roster,
+    private_counterpart,
 )
 
 SOURCE = "org/course-config/26f.json"
@@ -220,3 +223,61 @@ def test_faculty_and_students_are_kept_apart():
 
     assert [person.github for person in config.faculty] == ["prof"]
     assert [person.github for person in config.students] == ["student"]
+
+
+# --- Where the private roster lives ------------------------------------------
+
+
+def test_the_private_roster_sits_beside_the_public_configuration():
+    reference = CourseConfigRef("an-org", "course-info", "config/26f.json")
+
+    assert private_counterpart(reference) == CourseConfigRef(
+        "an-org", "course-info-private", "config/26f.json"
+    )
+
+
+def test_deriving_the_roster_keeps_the_owner_path_and_ref():
+    """The path is what lets several deliveries live in one repository."""
+    reference = CourseConfigRef("an-org", "course-info", "config/26w.json", "main")
+    derived = private_counterpart(reference)
+
+    assert derived.owner == "an-org"
+    assert derived.path == "config/26w.json"
+    assert derived.ref == "main"
+
+
+def test_a_reference_already_private_is_returned_unchanged():
+    """Otherwise a single-file course is sent to course-info-private-private."""
+    reference = CourseConfigRef("an-org", "course-info-private", "26f.json")
+
+    assert private_counterpart(reference) is reference
+
+
+# --- Parsing a private roster ------------------------------------------------
+
+
+def test_a_roster_holds_students():
+    assert parse_roster({"students": [{"github": "student"}]}, "roster") == (
+        Person(github="student"),
+    )
+
+
+def test_a_roster_need_not_name_any_faculty():
+    """The faculty it belongs with are in the public file, not this one."""
+    assert parse_roster({"students": []}, "roster") == ()
+
+
+def test_a_roster_ignores_faculty_it_does_carry():
+    """So that a course can split an existing file by copying it."""
+    data = {"faculty": [{"github": "prof"}], "students": [{"github": "student"}]}
+
+    assert parse_roster(data, "roster") == (Person(github="student"),)
+
+
+def test_a_roster_without_students_is_empty_rather_than_an_error():
+    assert parse_roster({}, "roster") == ()
+
+
+def test_a_roster_must_be_an_object():
+    with pytest.raises(ConfigError, match="must contain a JSON object"):
+        parse_roster([], "roster")

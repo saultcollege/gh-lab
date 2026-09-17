@@ -154,7 +154,7 @@ def render_roster(report: SendReport) -> str:
     """Describe who a dry run would have invited."""
     lines = [
         f"Would invite {_count(len(report.roster))} to {report.org}",
-        f"from {report.source}",
+        *_sources(report),
         *_skipped_self(report),
     ]
 
@@ -172,7 +172,7 @@ def render_results(report: SendReport) -> str:
     """Describe what happened to each person, and summarise it."""
     lines = [
         f"Inviting {_count(len(report.roster))} to {report.org}",
-        f"from {report.source}",
+        *_sources(report),
         *_skipped_self(report),
     ]
 
@@ -187,6 +187,24 @@ def render_results(report: SendReport) -> str:
     lines.append(_summary(report))
 
     return "\n".join(lines)
+
+
+def _sources(report: SendReport) -> list[str]:
+    """Name every file the roster was assembled from.
+
+    Students live in a private roster beside the public configuration, so there
+    are usually two. A roster that could not be read is said so plainly rather
+    than passed over: silently inviting only the faculty would look like a
+    course nobody has enrolled in.
+    """
+    lines = [f"from {report.source}"]
+
+    if report.roster_source:
+        lines.append(f"and {report.roster_source}")
+    elif report.roster_error:
+        lines.append(f"{INDENT}no private roster was read ({report.roster_error})")
+
+    return lines
 
 
 def _skipped_self(report: SendReport) -> list[str]:

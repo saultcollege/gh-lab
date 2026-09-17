@@ -120,6 +120,8 @@ Interactions with such external should be isolated from core decision-making log
 
 What that authentication can *see*, however, varies, and a command must not assume otherwise. A Codespace or workflow token is scoped to its own repository, so a private repository in another organization is out of reach there even though the caller is plainly signed in. A command must therefore treat a failed read as a fact to report rather than a cause to guess at, and distinguish "could not reach GitHub", "reached GitHub and was refused" and "the tool is not installed" — which is why `ToolNotFound` is a distinct adapter error rather than a message to match on.
 
+The design response is to need less, rather than to ask the user for more. Anything a student's command must read in every environment is kept publicly readable, so that the weakest token any environment provides is enough: this is why the faculty list is split from the student roster, and `course_config.private_counterpart` derives the second location from the first rather than taking a second setting. Asking a student to arrange credentials is the option of last resort, because it is the step most likely to stop them.
+
 ## Design principles
 
 Prefer:

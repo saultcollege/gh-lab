@@ -19,6 +19,8 @@ from gh_lab.course_config import (
     Person,
     parse_course_config,
     parse_course_config_ref,
+    parse_roster,
+    private_counterpart,
 )
 
 # Named in error messages, so that what the user has to fix is the thing they
@@ -68,6 +70,11 @@ class SendReport:
         dry_run: Whether the invitations were only described, not sent.
         skipped_self: The roster entry for whoever ran the command, when they
             were on it. They are never invited; see :func:`set_self_aside`.
+        roster_source: The private roster the students came from, when one was
+            read. ``None`` when the configuration held them itself.
+        roster_error: Why the private roster was not read, when it was not.
+            Reported rather than swallowed, so that a mistyped repository name
+            does not look like a course with nobody enrolled.
     """
 
     org: str
@@ -76,6 +83,8 @@ class SendReport:
     results: tuple[InviteResult, ...] = ()
     dry_run: bool = False
     skipped_self: Person | None = None
+    roster_source: str | None = None
+    roster_error: str | None = None
 
     @property
     def invited(self) -> tuple[InviteResult, ...]:
@@ -205,6 +214,80 @@ def load_course_config(reference: CourseConfigRef) -> CourseConfig:
     return parse_course_config(data, source=str(reference))
 
 
+@dataclass(frozen=True)
+class LoadedConfig:
+    """A course configuration, and which files it was actually assembled from.
+
+    Attributes:
+        config: Faculty from the primary file, students from whichever file
+            supplied them.
+        source: The reference the command was given.
+        roster_source: The private roster, when one was read.
+        roster_error: Why the private roster was not read, when it was not.
+    """
+
+    config: CourseConfig
+    source: str
+    roster_source: str | None = None
+    roster_error: str | None = None
+
+
+def load_students(reference: CourseConfigRef) -> tuple[Person, ...]:
+    """Fetch and parse a private roster.
+
+    Raises:
+        AdapterError: The file could not be fetched.
+        ConfigError: The file was fetched but is not a usable roster.
+    """
+    raw = github_cli.fetch_repo_file(
+        reference.owner, reference.repo, reference.path, reference.ref
+    )
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ConfigError(f"{reference} is not valid JSON: {error}") from error
+
+    return parse_roster(data, source=str(reference))
+
+
+def load_roster(reference: CourseConfigRef) -> LoadedConfig:
+    """Read a course configuration and the private roster beside it.
+
+    Students are held apart from faculty so that the faculty list can be
+    public; see :func:`private_counterpart`. The private file is optional, and
+    failing to read it is not fatal: a course still keeping everyone in one
+    file behaves exactly as it did before, because that file's own ``students``
+    are used instead.
+
+    Which files were read is recorded rather than inferred, so that a mistyped
+    repository name is reported as such instead of looking like a course with
+    nobody enrolled.
+
+    Raises:
+        AdapterError: The primary file could not be fetched.
+        ConfigError: The primary file is not a usable configuration.
+    """
+    config = load_course_config(reference)
+    private = private_counterpart(reference)
+
+    if private == reference:
+        return LoadedConfig(config=config, source=str(reference))
+
+    try:
+        students = load_students(private)
+    except (AdapterError, ConfigError) as error:
+        return LoadedConfig(
+            config=config, source=str(reference), roster_error=str(error)
+        )
+
+    return LoadedConfig(
+        config=replace(config, students=students),
+        source=str(reference),
+        roster_source=str(private),
+    )
+
+
 def invite_everyone(org: str, roster: Sequence[Person]) -> tuple[InviteResult, ...]:
     """Invite each person in turn, recording what happened to each.
 
@@ -244,16 +327,18 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
             usable course configuration.
     """
     reference = parse_course_config_ref(config_file, CONFIG_FILE_OPTION)
-    config = load_course_config(reference)
-    roster, you = set_self_aside(build_roster(config), github_cli.current_user())
+    loaded = load_roster(reference)
+    roster, you = set_self_aside(build_roster(loaded.config), github_cli.current_user())
 
     return SendReport(
         org=reference.owner,
-        source=str(reference),
+        source=loaded.source,
         roster=roster,
         results=() if dry_run else invite_everyone(reference.owner, roster),
         dry_run=dry_run,
         skipped_self=you,
+        roster_source=loaded.roster_source,
+        roster_error=loaded.roster_error,
     )
 
 
