@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 
-from gh_lab.adapters import AdapterError
+from gh_lab.adapters import AdapterError, ToolNotFound
 
 TIMEOUT_SECONDS = 15
 
@@ -19,7 +19,7 @@ def _run(*args: str) -> str:
             check=False,
         )
     except FileNotFoundError as error:
-        raise AdapterError("git is not installed or not on PATH") from error
+        raise ToolNotFound("git is not installed or not on PATH") from error
     except subprocess.TimeoutExpired as error:
         raise AdapterError(f"git {args[0]} timed out") from error
 

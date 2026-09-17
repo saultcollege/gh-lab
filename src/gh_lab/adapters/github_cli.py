@@ -5,7 +5,7 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from gh_lab.adapters import AdapterError
+from gh_lab.adapters import AdapterError, ToolNotFound
 
 TIMEOUT_SECONDS = 30
 
@@ -28,7 +28,7 @@ def _run_text(args: Sequence[str]) -> str:
             check=False,
         )
     except FileNotFoundError as error:
-        raise AdapterError(
+        raise ToolNotFound(
             "the GitHub CLI (gh) is not installed or not on PATH"
         ) from error
     except subprocess.TimeoutExpired as error:

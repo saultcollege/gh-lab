@@ -78,8 +78,11 @@ It checks that the repository is named correctly, is private, was created from
 the lab template, is owned by you rather than the course organization, that your
 faculty are collaborators, and that you are on the right branch.
 
-Anything it cannot check — because you are not signed in to the GitHub CLI, for
-example — is reported as *not checked* rather than as a failure.
+Anything it cannot check — because the GitHub CLI cannot reach GitHub, or
+because the token it is using cannot read your course's configuration — is
+reported as *not checked* rather than as a failure, and the summary explains
+which. In a Codespace the faculty check is expected to be skipped: a Codespace
+is given a token that can only see the repository it belongs to.
 
 Options:
 

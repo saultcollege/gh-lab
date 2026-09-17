@@ -9,7 +9,7 @@ import subprocess
 
 import pytest
 
-from gh_lab.adapters import AdapterError, git, github_cli
+from gh_lab.adapters import AdapterError, ToolNotFound, git, github_cli
 
 
 class FakeCompleted:
@@ -58,6 +58,16 @@ def test_missing_git_becomes_an_adapter_error(monkeypatch):
         git.current_branch()
 
 
+def test_missing_git_is_reported_as_a_missing_tool(monkeypatch):
+    def missing(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(subprocess, "run", missing)
+
+    with pytest.raises(ToolNotFound):
+        git.current_branch()
+
+
 # --- gh --------------------------------------------------------------------
 
 
@@ -79,6 +89,43 @@ def test_unauthenticated_gh_becomes_an_adapter_error(monkeypatch):
 
     with pytest.raises(AdapterError, match="auth login"):
         github_cli.repo_view()
+
+
+def test_missing_gh_is_reported_as_a_missing_tool(monkeypatch):
+    """Distinguishable from a refusal, so the advice can tell them apart."""
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(subprocess, "run", missing)
+
+    with pytest.raises(ToolNotFound):
+        github_cli.repo_view()
+
+
+def test_a_missing_tool_is_still_an_adapter_error(monkeypatch):
+    """Every existing handler catches AdapterError; the subclass must fit it."""
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(subprocess, "run", missing)
+
+    with pytest.raises(AdapterError):
+        github_cli.repo_view()
+
+
+def test_a_refusal_is_not_a_missing_tool(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: FakeCompleted(stderr="gh: Not Found (HTTP 404)", returncode=1),
+    )
+
+    with pytest.raises(AdapterError) as exc_info:
+        github_cli.repo_view()
+
+    assert not isinstance(exc_info.value, ToolNotFound)
 
 
 def test_list_collaborators_returns_logins(monkeypatch):

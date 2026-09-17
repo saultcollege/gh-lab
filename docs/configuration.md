@@ -138,13 +138,32 @@ array at all.
 Only the course roster lives in the course configuration. Everything else is
 stated in `.lab/config.json` or derived from it. That is not arbitrary.
 
-`setup-check` has to run in two places: a student's devcontainer or Codespace,
-and a GitHub Actions workflow on their pull request. In the devcontainer it uses
-the student's existing GitHub authentication, so it can read a private repository
-in the course organization. **A workflow cannot.** The token available to a
-workflow is scoped to the repository it runs in; reading another repository would
-require a GitHub App or a personal access token stored in the student's own
-repository, and neither is acceptable for student-owned repos.
+`setup-check` has to run in three places, and what its authentication can *see*
+differs in each.
+
+* **A devcontainer on the student's own machine** uses the student's own GitHub
+  credentials, so it can read a private repository in the course organization.
+* **A GitHub Actions workflow** on their pull request **cannot.** The token
+  available to a workflow is scoped to the repository it runs in.
+* **A Codespace cannot either**, for the same reason: the platform supplies a
+  `GITHUB_TOKEN` scoped to the repository the codespace belongs to. This is
+  easy to miss, because the student is unmistakably signed in — every check
+  that only asks about *their own* repository passes.
+
+Reading another repository would require a GitHub App or a personal access
+token stored in the student's own repository, and neither is acceptable for
+student-owned repos. Nor can a codespace be granted the access: GitHub's
+`customizations.codespaces.repositories` may only name repositories in the same
+account or organization as the one the codespace is for, and a lab repository
+lives in the student's personal account by design — see the check that it is
+not owned by the course organization.
+
+In a Codespace, therefore, only the faculty check is lost; everything else is
+stated in `.lab/config.json`. `setup-check` says so in as many words, and does
+**not** suggest `gh auth login`, which refuses to run while `GITHUB_TOKEN` is
+set. A student who wants that last check can clear the variable and sign in as
+themselves for that terminal, or run the check from a clone on their own
+machine.
 
 So anything kept in the course configuration is unavailable to the check when it
 runs in Actions. The faculty check is already skipped there for a separate reason
@@ -170,9 +189,11 @@ centrally.
 | Every faculty member is a collaborator | GitHub, and the course configuration |
 | Repository is not owned by the course organization | GitHub |
 
-A check that cannot run — because the student is not signed in to the GitHub CLI,
-or the course configuration is unreachable — is reported as **not checked**
-rather than as a failure, and does not fail the command.
+A check that cannot run — because the GitHub CLI cannot reach GitHub, or
+because the token it is using cannot read the course configuration — is
+reported as **not checked** rather than as a failure, and does not fail the
+command. The summary at the end names which of those it was, and suggests
+signing in only where signing in is actually possible.
 
 ### In GitHub Actions
 
