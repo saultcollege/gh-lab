@@ -2,7 +2,7 @@
 
 ## Status
 
-ACTIVE
+DONE
 
 ## Why
 
@@ -55,8 +55,12 @@ keep the student roster — which is — in a separate private repository.
 4. [+] Name both files in the send report, and say when the roster was missed.
 5. [+] Correct the wording that assumed the configuration is always private.
 6. [+] Document the arrangement, the convention, and how to migrate.
-7. [ ] Confirm in a real Codespace that a repo-scoped token can read a public
-   repository. Everything above assumes it; GitHub's documentation does not say
-   either way. If it cannot, switch to the inline fallback above.
-8. [ ] Publish `course-info`, move the roster to `course-info-private`, and
-   re-point the lab templates.
+7. [+] Confirm in a real Codespace that a repo-scoped token can read a public
+   repository. It can — checked with `gh api` against a public repository from
+   inside a codespace, which is what the whole arrangement rests on. GitHub's
+   documentation does not say either way, so this is worth re-checking if the
+   faculty check ever starts being skipped in a Codespace again.
+8. [+] Publish `course-info`, move the roster to `course-info-private`.
+9. [ ] Re-point `course-config` in each lab template at the public file. Until
+   a template is re-pointed, repositories created from it keep reading the old
+   reference, so leave that file readable for the cohort already using it.
