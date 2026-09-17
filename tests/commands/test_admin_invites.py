@@ -7,6 +7,7 @@ a dry run reaches it at all.
 
 import argparse
 import io
+import re
 import sys
 
 import pytest
@@ -14,6 +15,7 @@ import pytest
 from gh_lab.adapters import AdapterError, github_cli
 from gh_lab.cli import build_parser as main_parser
 from gh_lab.cli import main
+from gh_lab.colour import BRIGHT_BLUE, GREEN, RESET, YELLOW, Painter
 from gh_lab.commands.admin_invites import command as command_module
 from gh_lab.commands.admin_invites import shell
 from gh_lab.commands.admin_invites.command import (
@@ -947,3 +949,78 @@ def test_an_expired_invitation_with_no_inviter_still_says_what_to_do():
     )
 
     assert "invite you again" in output.getvalue()
+
+
+# --- Colour ----------------------------------------------------------------
+
+
+ANSI = re.compile(r"\033\[[0-9;]*m")
+
+MIXED = Review(
+    PENDING,
+    (Choice.ACCEPT, Choice.DECLINE, Choice.SKIP),
+    position=3,
+    stage=Stage.CONFIRMING,
+)
+
+
+def test_rendering_is_plain_unless_a_painter_is_given():
+    """Everything else in this file reads the output as plain text."""
+    assert "\033[" not in shell.render_choices(MIXED)
+
+
+def test_each_action_word_has_its_own_colour():
+    painted = shell.render_choices(MIXED, Painter(True))
+
+    assert f"{GREEN}accept{RESET}" in painted
+    assert f"{YELLOW}decline{RESET}" in painted
+
+
+def test_the_prompt_colours_the_options_and_the_default():
+    output = io.StringIO()
+    shell.review_interactively(
+        begin_review((LAB_1,)), FakeTerminal("s\nn\n"), output, Painter(True)
+    )
+
+    shown = output.getvalue()
+
+    assert f"{GREEN}[a]ccept{RESET}" in shown
+    assert f"{YELLOW}[d]ecline{RESET}" in shown
+    assert f"{BRIGHT_BLUE}[s]kip{RESET}" in shown
+    assert f"(default: {BRIGHT_BLUE}skip{RESET})" in shown
+
+
+def test_colour_adds_nothing_but_escapes_to_the_choices():
+    """Padding is computed from the plain word, so the columns must not move.
+
+    An ANSI escape occupies no width on screen but several characters in the
+    string, so padding a painted label instead of a plain one would misalign
+    every row by a different amount.
+    """
+    plain = shell.render_choices(MIXED)
+    painted = shell.render_choices(MIXED, Painter(True))
+
+    assert ANSI.sub("", painted) == plain
+
+
+def test_colour_adds_nothing_but_escapes_to_the_review():
+    plain, painted = io.StringIO(), io.StringIO()
+
+    shell.review_interactively(
+        begin_review(PENDING), FakeTerminal("a\nd\ns\nn\n"), plain
+    )
+    shell.review_interactively(
+        begin_review(PENDING), FakeTerminal("a\nd\ns\nn\n"), painted, Painter(True)
+    )
+
+    assert ANSI.sub("", painted.getvalue()) == plain.getvalue()
+
+
+def test_quitting_is_not_coloured():
+    """Only the three actions are colour-coded; quit is not one of them."""
+    output = io.StringIO()
+    shell.review_interactively(
+        begin_review((LAB_1,)), FakeTerminal("s\nn\n"), output, Painter(True)
+    )
+
+    assert "  [q]uit " in output.getvalue()

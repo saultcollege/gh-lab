@@ -10,11 +10,13 @@ subject with options rather than a positional argument.
 """
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 from typing import TextIO
 
 from gh_lab.adapters import AdapterError
+from gh_lab.colour import BRIGHT_BLUE, GREEN, YELLOW, Painter, use_colour
 from gh_lab.commands.admin_invites.command import (
     ActionResult,
     Choice,
@@ -56,11 +58,23 @@ REVIEW_ANSWERS = {
     "skip": Choice.SKIP,
 }
 
-CHOICE_LABELS = {
-    Choice.ACCEPT: "accept ",
+CHOICE_WORDS = {
+    Choice.ACCEPT: "accept",
     Choice.DECLINE: "decline",
-    Choice.SKIP: "skip   ",
+    Choice.SKIP: "skip",
 }
+
+CHOICE_COLOURS = {
+    Choice.ACCEPT: GREEN,
+    Choice.DECLINE: YELLOW,
+    Choice.SKIP: BRIGHT_BLUE,
+}
+
+LABEL_WIDTH = max(len(word) for word in CHOICE_WORDS.values())
+
+# Colour is off unless a caller supplies a painter, so that rendering can be
+# read and tested as plain text.
+NO_COLOUR = Painter(False)
 
 CONFIRM_PROMPT = "\n[y]es, do it  [e]dit  [n]o, cancel: "
 
@@ -233,14 +247,18 @@ def handle_accept(args: argparse.Namespace) -> int:
         )
         return 2
 
-    review = review_interactively(begin_review(invitations), sys.stdin, sys.stdout)
+    paint = Painter(use_colour("auto", sys.stdout, os.environ))
+
+    review = review_interactively(
+        begin_review(invitations), sys.stdin, sys.stdout, paint
+    )
 
     if review.stage is not Stage.CONFIRMED:
         print("Cancelled. Nothing was changed.")
         return 0
 
     results = apply_review(review)
-    print(render_actions(results, review))
+    print(render_actions(results, review, paint))
 
     return 0 if all(result.ok for result in results) else 1
 
@@ -254,7 +272,12 @@ def _interactive(stream: TextIO) -> bool:
     return bool(getattr(stream, "isatty", lambda: False)())
 
 
-def review_interactively(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
+def review_interactively(
+    review: Review,
+    stdin: TextIO,
+    stdout: TextIO,
+    paint: Painter = NO_COLOUR,
+) -> Review:
     """Ask about each invitation, then about the whole set.
 
     The decisions belong to the command layer; this only turns keystrokes into
@@ -262,14 +285,19 @@ def review_interactively(review: Review, stdin: TextIO, stdout: TextIO) -> Revie
     """
     while review.stage in (Stage.REVIEWING, Stage.CONFIRMING):
         if review.stage is Stage.REVIEWING:
-            review = _review_one(review, stdin, stdout)
+            review = _review_one(review, stdin, stdout, paint)
         else:
-            review = _ask_to_confirm(review, stdin, stdout)
+            review = _ask_to_confirm(review, stdin, stdout, paint)
 
     return review
 
 
-def _review_one(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
+def _review_one(
+    review: Review,
+    stdin: TextIO,
+    stdout: TextIO,
+    paint: Painter,
+) -> Review:
     invitation = review.current
 
     if invitation is None:
@@ -287,7 +315,7 @@ def _review_one(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
     # is where a mistyped one is caught.
     default = review.choices[review.position]
 
-    answer = _ask(_review_prompt(default, invitation), stdin, stdout)
+    answer = _ask(_review_prompt(default, invitation, paint), stdin, stdout)
 
     if answer in ("q", "quit"):
         return cancel(review)
@@ -301,15 +329,33 @@ def _review_one(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
     return choose(review, choice)
 
 
-def _review_prompt(default: Choice, invitation: RepositoryInvitation) -> str:
+def _review_prompt(
+    default: Choice,
+    invitation: RepositoryInvitation,
+    paint: Painter,
+) -> str:
     """The answers on offer, which exclude accepting an expired invitation."""
-    accept = "" if not invitation.acceptable else "[a]ccept  "
+    options = []
 
-    return f"{accept}[d]ecline  [s]kip  [q]uit (default: {default.value}): "
+    if invitation.acceptable:
+        options.append(paint("[a]ccept", CHOICE_COLOURS[Choice.ACCEPT]))
+
+    options.append(paint("[d]ecline", CHOICE_COLOURS[Choice.DECLINE]))
+    options.append(paint("[s]kip", CHOICE_COLOURS[Choice.SKIP]))
+    options.append("[q]uit")
+
+    chosen = paint(default.value, CHOICE_COLOURS[default])
+
+    return "  ".join(options) + f" (default: {chosen}): "
 
 
-def _ask_to_confirm(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
-    print(render_choices(review), file=stdout)
+def _ask_to_confirm(
+    review: Review,
+    stdin: TextIO,
+    stdout: TextIO,
+    paint: Painter,
+) -> Review:
+    print(render_choices(review, paint), file=stdout)
 
     answer = _ask(CONFIRM_PROMPT, stdin, stdout)
 
@@ -320,6 +366,18 @@ def _ask_to_confirm(review: Review, stdin: TextIO, stdout: TextIO) -> Review:
         return edit(review)
 
     return cancel(review)
+
+
+def _label(choice: Choice, paint: Painter) -> str:
+    """The action word, coloured, padded so what follows it lines up.
+
+    Padded from the plain word rather than the painted one: an ANSI escape takes
+    no width on screen but plenty of characters, so padding after colouring
+    would push every row out by a different amount.
+    """
+    word = CHOICE_WORDS[choice]
+
+    return paint(word, CHOICE_COLOURS[choice]) + " " * (LABEL_WIDTH - len(word))
 
 
 def _ask(prompt: str, stdin: TextIO, stdout: TextIO) -> str:
@@ -359,12 +417,12 @@ def render_pending(invitations: Sequence[RepositoryInvitation]) -> str:
     return "\n".join(lines)
 
 
-def render_choices(review: Review) -> str:
+def render_choices(review: Review, paint: Painter = NO_COLOUR) -> str:
     """Show every choice before anything is acted on."""
     lines = ["", "You chose:"]
 
     for invitation, choice in review.decided:
-        lines.append(f"{INDENT}{CHOICE_LABELS[choice]}  {invitation.display}")
+        lines.append(f"{INDENT}{_label(choice, paint)}  {invitation.display}")
 
     if not review.decided:
         lines.append(f"{INDENT}nothing")
@@ -379,12 +437,14 @@ def render_choices(review: Review) -> str:
 def render_actions(
     results: Sequence[ActionResult],
     review: Review,
+    paint: Painter = NO_COLOUR,
 ) -> str:
     """Report what was done, once it has been."""
     lines = [""]
 
     for result in results:
-        line = f"{INDENT}{CHOICE_LABELS[result.choice]}  {result.invitation.display}"
+        label = _label(result.choice, paint)
+        line = f"{INDENT}{label}  {result.invitation.display}"
         lines.append(f"{line} — {result.error}" if result.error else line)
 
     counts = [
