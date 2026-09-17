@@ -224,7 +224,11 @@ def handle_accept(args: argparse.Namespace) -> int:
         return 0
 
     if not _interactive(sys.stdin):
-        print(render_pending(invitations))
+        # Flushed before the diagnostic below, because stdout is block-buffered
+        # when it is not a terminal while stderr is not buffered at all. Without
+        # this, redirecting both to one place prints the explanation before the
+        # listing it refers to.
+        print(render_pending(invitations), flush=True)
         print(
             f"{PROGRAM} accept: reviewing invitations needs a terminal. "
             "Nothing was changed.",
