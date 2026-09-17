@@ -64,6 +64,8 @@ CHOICE_LABELS = {
 
 CONFIRM_PROMPT = "\n[y]es, do it  [e]dit  [n]o, cancel: "
 
+NOTHING_PENDING = "No invitations are waiting for you."
+
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     """Register the ``invites`` group on the ``admin`` subparsers."""
@@ -124,15 +126,6 @@ def _register_accept(verbs: argparse._SubParsersAction) -> None:
             "Review the repository invitations sent to you, then accept or "
             "decline them together. Nothing is accepted or declined until the "
             "whole list has been reviewed and the choices confirmed."
-        ),
-    )
-
-    parser.add_argument(
-        "--org",
-        metavar="ORG",
-        help=(
-            "Only review invitations from this organization. Without it, every "
-            "pending invitation is listed, including any unrelated to a course."
         ),
     )
 
@@ -214,13 +207,13 @@ def handle_send(args: argparse.Namespace) -> int:
 def handle_accept(args: argparse.Namespace) -> int:
     """Run ``admin invites accept`` and return its exit code."""
     try:
-        invitations = list_pending(args.org)
+        invitations = list_pending()
     except AdapterError as error:
         print(f"{PROGRAM} accept: {error}", file=sys.stderr)
         return 2
 
     if not invitations:
-        print(_nothing_pending(args.org))
+        print(NOTHING_PENDING)
         return 0
 
     if not _interactive(sys.stdin):
@@ -338,13 +331,6 @@ def _describe(invitation: RepositoryInvitation, index: int, total: int) -> str:
         lines.append(f"{INDENT}invited by @{invitation.inviter}")
 
     return "\n".join(lines)
-
-
-def _nothing_pending(org: str | None) -> str:
-    if org:
-        return f"No invitations from {org} are waiting for you."
-
-    return "No invitations are waiting for you."
 
 
 def render_pending(invitations: Sequence[RepositoryInvitation]) -> str:

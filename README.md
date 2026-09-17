@@ -158,16 +158,12 @@ accepted or declined until you have seen the whole list and confirmed it.** At
 the confirmation step you can go back and edit your choices, or cancel and
 change nothing.
 
-To ignore invitations unrelated to a course:
-
-    gh lab admin invites accept --org my-org
-
 Reviewing needs a terminal. Run without one — in a pipe, or in CI — and it lists
 what is pending and exits without changing anything.
 
-Options:
-
-    --org ORG                Only review invitations from this organization
+Every pending invitation is listed. Lab repositories belong to the students who
+create them, not to the course organization, so there is nothing course-shaped
+to filter on.
 
 ## Troubleshooting
 

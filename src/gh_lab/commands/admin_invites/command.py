@@ -221,14 +221,12 @@ class RepositoryInvitation:
     Attributes:
         id: GitHub's identifier, needed to accept or decline it.
         repository: The full ``owner/name`` of the repository.
-        owner: Who owns it — a student, for a lab repository.
         inviter: Who sent the invitation, when GitHub said.
         permission: The access the invitation grants.
     """
 
     id: int
     repository: str
-    owner: str
     inviter: str | None = None
     permission: str | None = None
 
@@ -260,19 +258,16 @@ def parse_invitation(entry: Mapping[str, object]) -> RepositoryInvitation | None
         return None
 
     full_name = repository.get("full_name")
-    owner = repository.get("owner")
 
     if not isinstance(full_name, str) or not full_name:
         return None
 
-    login = owner.get("login") if isinstance(owner, dict) else None
     inviter = entry.get("inviter")
     permission = entry.get("permissions")
 
     return RepositoryInvitation(
         id=identifier,
         repository=full_name,
-        owner=login if isinstance(login, str) else full_name.split("/")[0],
         inviter=inviter.get("login") if isinstance(inviter, dict) else None,
         permission=permission if isinstance(permission, str) else None,
     )
@@ -285,30 +280,6 @@ def parse_invitations(
     shaped = (parse_invitation(entry) for entry in entries)
 
     return tuple(invitation for invitation in shaped if invitation is not None)
-
-
-def invitations_from_org(
-    invitations: Sequence[RepositoryInvitation],
-    org: str | None,
-) -> tuple[RepositoryInvitation, ...]:
-    """Narrow a listing to one organization.
-
-    Faculty generally have invitations that have nothing to do with the course
-    in front of them. ``None`` means no narrowing at all. Owners are compared
-    without regard to case, as GitHub handles are elsewhere in this project.
-
-    Pure: takes plain data and returns plain data.
-    """
-    if org is None:
-        return tuple(invitations)
-
-    wanted = org.casefold()
-
-    return tuple(
-        invitation
-        for invitation in invitations
-        if invitation.owner.casefold() == wanted
-    )
 
 
 class Choice(StrEnum):
@@ -444,15 +415,13 @@ class ActionResult:
         return not self.error
 
 
-def list_pending(org: str | None = None) -> tuple[RepositoryInvitation, ...]:
-    """The invitations pending for the current user, optionally one org's only.
+def list_pending() -> tuple[RepositoryInvitation, ...]:
+    """Every repository invitation pending for the current user.
 
     Raises:
         AdapterError: The invitations could not be listed.
     """
-    entries = github_cli.list_repository_invitations()
-
-    return invitations_from_org(parse_invitations(entries), org)
+    return parse_invitations(github_cli.list_repository_invitations())
 
 
 def apply_review(review: Review) -> tuple[ActionResult, ...]:

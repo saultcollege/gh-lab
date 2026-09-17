@@ -90,12 +90,13 @@ gh lab setup-check          # lab comes from .lab/config.json
 gh lab setup-check 2        # one repository holding several labs
 ```
 
-**Faculty-facing commands** operate across many repositories rather than within one, so they select their subject with options rather than a positional, for example `--config-file` and `--org`:
+**Faculty-facing commands** operate across many repositories rather than within one, so they select their subject with options rather than a positional, for example `--config-file`:
 
 ```text
 gh lab admin invites send --config-file my-org/course-info/26f.json
-gh lab admin invites accept --org my-org
 ```
+
+A faculty-facing command with nothing to select takes no options at all: `gh lab admin invites accept` acts on whatever is pending for the user running it.
 
 ### Command groups
 

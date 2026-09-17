@@ -31,7 +31,6 @@ from gh_lab.commands.admin_invites.command import (
     choose,
     confirm,
     edit,
-    invitations_from_org,
     invite_everyone,
     parse_invitation,
     parse_invitations,
@@ -459,7 +458,6 @@ def test_an_invitation_is_shaped_from_its_entry():
     assert invitation == RepositoryInvitation(
         id=1,
         repository="student/csd217-lab-1",
-        owner="student",
         inviter="student",
         permission="write",
     )
@@ -471,13 +469,6 @@ def test_an_invitation_without_an_inviter_is_still_usable():
 
     assert invitation is not None
     assert invitation.inviter is None
-
-
-def test_an_owner_is_taken_from_the_full_name_when_absent():
-    entry = invitation_entry()
-    entry["repository"].pop("owner")
-
-    assert parse_invitation(entry).owner == "student"
 
 
 @pytest.mark.parametrize(
@@ -511,41 +502,12 @@ def test_the_display_names_the_repository_and_permission():
     )
 
 
-# --- Narrowing to one organization -----------------------------------------
-
-
-INVITATIONS = (
-    RepositoryInvitation(1, "course-org/lab-1", "course-org"),
-    RepositoryInvitation(2, "someone-else/notes", "someone-else"),
-    RepositoryInvitation(3, "Course-Org/lab-2", "Course-Org"),
-)
-
-
-def test_no_organization_keeps_everything():
-    assert invitations_from_org(INVITATIONS, None) == INVITATIONS
-
-
-def test_an_organization_narrows_the_listing():
-    """Faculty have invitations that have nothing to do with the course."""
-    kept = invitations_from_org(INVITATIONS, "course-org")
-
-    assert [invitation.id for invitation in kept] == [1, 3]
-
-
-def test_the_organization_is_matched_ignoring_case():
-    assert [i.id for i in invitations_from_org(INVITATIONS, "COURSE-ORG")] == [1, 3]
-
-
-def test_an_organization_with_no_invitations_keeps_nothing():
-    assert invitations_from_org(INVITATIONS, "other-org") == ()
-
-
 # --- Reviewing invitations -------------------------------------------------
 
 
-LAB_1 = RepositoryInvitation(1, "alice/lab-1", "alice", "alice", "write")
-LAB_2 = RepositoryInvitation(2, "bob/lab-1", "bob", "bob", "write")
-SPAM = RepositoryInvitation(3, "spammer/crypto", "spammer", "spammer", "admin")
+LAB_1 = RepositoryInvitation(1, "alice/lab-1", "alice", "write")
+LAB_2 = RepositoryInvitation(2, "bob/lab-1", "bob", "write")
+SPAM = RepositoryInvitation(3, "spammer/crypto", "spammer", "admin")
 
 PENDING = (LAB_1, LAB_2, SPAM)
 
@@ -608,7 +570,7 @@ def test_accept_argument_surface_is_stable():
         action.dest for action in parser._actions if not action.option_strings
     ]
 
-    assert options == {"-h", "--help", "--org"}
+    assert options == {"-h", "--help"}
     assert positionals == []
 
 
@@ -793,7 +755,7 @@ def run_accept_cli(monkeypatch, invitations=PENDING, review=None, error=None, tt
     if error is not None:
         monkeypatch.setattr(shell, "list_pending", _raiser(error))
     else:
-        monkeypatch.setattr(shell, "list_pending", lambda org: invitations)
+        monkeypatch.setattr(shell, "list_pending", lambda: invitations)
 
     stdin = FakeTerminal("") if tty else io.StringIO("")
     monkeypatch.setattr(sys, "stdin", stdin)
@@ -801,7 +763,7 @@ def run_accept_cli(monkeypatch, invitations=PENDING, review=None, error=None, tt
     if review is not None:
         monkeypatch.setattr(shell, "review_interactively", lambda *a: review)
 
-    return shell.handle_accept(argparse.Namespace(org=None))
+    return shell.handle_accept(argparse.Namespace())
 
 
 def _raiser(error):
