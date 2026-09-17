@@ -112,7 +112,7 @@ Each task is independently delegatable and should end with the project's validat
 
 8. [+] **Implement `admin invites accept`.** The review/confirm/edit/cancel flow as a pure state machine over plain data, so it can be tested without a terminal, with a thin `input()`-driven shell around it. Bulk-process only on confirmation. Handle a non-TTY stdin explicitly rather than blocking.
 
-9. [ ] **Test `admin invites accept`.** Drive the state machine directly for review, edit, cancel and confirm paths; stub stdin for the prompt loop; assert that no accept or decline call is made before confirmation. Add the argument-surface guard test.
+9. [+] **Test `admin invites accept`.** Drive the state machine directly for review, edit, cancel and confirm paths; stub stdin for the prompt loop; assert that no accept or decline call is made before confirmation. Add the argument-surface guard test.
 
 10. [ ] **Update user-facing documentation.** `README.md` (including the embedded `--help` block and both "`gh lab accept-invites` is planned" mentions), `docs/architecture.md` (the nested grammar, the shared course-config module, and the `accept_invites/` example), and `docs/configuration.md` (the `students` array).
 

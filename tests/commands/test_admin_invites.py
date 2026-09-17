@@ -6,6 +6,8 @@ a dry run reaches it at all.
 """
 
 import argparse
+import io
+import sys
 
 import pytest
 
@@ -15,11 +17,20 @@ from gh_lab.cli import main
 from gh_lab.commands.admin_invites import command as command_module
 from gh_lab.commands.admin_invites import shell
 from gh_lab.commands.admin_invites.command import (
+    Choice,
     InviteResult,
     Outcome,
     RepositoryInvitation,
+    Review,
     SendReport,
+    Stage,
+    apply_review,
+    begin_review,
     build_roster,
+    cancel,
+    choose,
+    confirm,
+    edit,
     invitations_from_org,
     invite_everyone,
     parse_invitation,
@@ -527,3 +538,324 @@ def test_the_organization_is_matched_ignoring_case():
 
 def test_an_organization_with_no_invitations_keeps_nothing():
     assert invitations_from_org(INVITATIONS, "other-org") == ()
+
+
+# --- Reviewing invitations -------------------------------------------------
+
+
+LAB_1 = RepositoryInvitation(1, "alice/lab-1", "alice", "alice", "write")
+LAB_2 = RepositoryInvitation(2, "bob/lab-1", "bob", "bob", "write")
+SPAM = RepositoryInvitation(3, "spammer/crypto", "spammer", "spammer", "admin")
+
+PENDING = (LAB_1, LAB_2, SPAM)
+
+
+class FakeTerminal(io.StringIO):
+    """Stdin that claims to be a terminal, so the prompt loop will run."""
+
+    def isatty(self):
+        return True
+
+
+def accept_parser() -> argparse.ArgumentParser:
+    """The subparser registered for ``admin invites accept``."""
+    parser = main_parser()
+
+    for name in ("admin", "invites", "accept"):
+        parser = _subparser(parser, name)
+
+    return parser
+
+
+def review_with(keys, invitations=PENDING):
+    """Run the prompt loop against scripted keystrokes."""
+    return shell.review_interactively(
+        begin_review(invitations), FakeTerminal(keys), io.StringIO()
+    )
+
+
+def stub_actions(monkeypatch, failing=()):
+    """Record every acceptance and declining, failing for ``failing`` ids."""
+    done = []
+
+    def accept(invitation_id):
+        if invitation_id in failing:
+            raise AdapterError("HTTP 404: Not Found")
+        done.append(("accept", invitation_id))
+
+    def decline(invitation_id):
+        if invitation_id in failing:
+            raise AdapterError("HTTP 404: Not Found")
+        done.append(("decline", invitation_id))
+
+    monkeypatch.setattr(github_cli, "accept_repository_invitation", accept)
+    monkeypatch.setattr(github_cli, "decline_repository_invitation", decline)
+
+    return done
+
+
+def test_accept_argument_surface_is_stable():
+    """Pin the arguments, because CI invokes them directly.
+
+    `.github/workflows/ci.yml` hard-codes these, and a stale invocation there is
+    not caught by this suite: it fails only once the change has been pushed. If
+    this test fails, update the workflow in the same change.
+    """
+    parser = accept_parser()
+
+    options = {option for action in parser._actions for option in action.option_strings}
+    positionals = [
+        action.dest for action in parser._actions if not action.option_strings
+    ]
+
+    assert options == {"-h", "--help", "--org"}
+    assert positionals == []
+
+
+def test_a_review_starts_with_everything_skipped():
+    """An abandoned review must not leave an invitation undecided."""
+    review = begin_review(PENDING)
+
+    assert review.choices == (Choice.SKIP, Choice.SKIP, Choice.SKIP)
+    assert review.stage is Stage.REVIEWING
+    assert review.current is LAB_1
+
+
+def test_choosing_records_and_moves_on():
+    review = choose(begin_review(PENDING), Choice.ACCEPT)
+
+    assert review.choices[0] is Choice.ACCEPT
+    assert review.current is LAB_2
+
+
+def test_the_last_invitation_leads_to_confirming():
+    review = begin_review(PENDING)
+
+    for _ in PENDING:
+        review = choose(review, Choice.ACCEPT)
+
+    assert review.stage is Stage.CONFIRMING
+    assert review.current is None
+
+
+def test_choosing_does_nothing_once_the_list_is_reviewed():
+    review = confirm(begin_review((LAB_1,)))
+
+    assert choose(review, Choice.DECLINE) == review
+
+
+def test_editing_returns_to_the_start_keeping_the_choices():
+    review = choose(begin_review(PENDING), Choice.ACCEPT)
+    review = choose(review, Choice.DECLINE)
+    review = choose(review, Choice.SKIP)
+
+    edited = edit(review)
+
+    assert edited.position == 0
+    assert edited.stage is Stage.REVIEWING
+    assert edited.choices == review.choices
+
+
+def test_only_decided_invitations_are_acted_on():
+    review = choose(begin_review(PENDING), Choice.ACCEPT)
+    review = choose(review, Choice.SKIP)
+    review = choose(review, Choice.DECLINE)
+
+    assert review.decided == ((LAB_1, Choice.ACCEPT), (SPAM, Choice.DECLINE))
+    assert review.skipped == (LAB_2,)
+
+
+# --- Nothing happens before confirmation -----------------------------------
+
+
+@pytest.mark.parametrize("stage", [Stage.REVIEWING, Stage.CONFIRMING, Stage.CANCELLED])
+def test_an_unconfirmed_review_does_nothing_at_all(monkeypatch, stage):
+    """The whole point of the confirmation step."""
+    done = stub_actions(monkeypatch)
+    review = Review(PENDING, (Choice.ACCEPT,) * 3, position=3, stage=stage)
+
+    assert apply_review(review) == ()
+    assert done == []
+
+
+def test_a_confirmed_review_accepts_and_declines(monkeypatch):
+    done = stub_actions(monkeypatch)
+    review = Review(
+        PENDING,
+        (Choice.ACCEPT, Choice.SKIP, Choice.DECLINE),
+        position=3,
+        stage=Stage.CONFIRMED,
+    )
+
+    results = apply_review(review)
+
+    assert done == [("accept", 1), ("decline", 3)]
+    assert all(result.ok for result in results)
+
+
+def test_a_failure_does_not_stop_the_other_invitations(monkeypatch):
+    """An invitation the student already revoked must not block the rest."""
+    done = stub_actions(monkeypatch, failing={1})
+    review = Review(
+        PENDING,
+        (Choice.ACCEPT, Choice.ACCEPT, Choice.ACCEPT),
+        position=3,
+        stage=Stage.CONFIRMED,
+    )
+
+    results = apply_review(review)
+
+    assert done == [("accept", 2), ("accept", 3)]
+    assert [result.ok for result in results] == [False, True, True]
+    assert results[0].invitation is LAB_1
+    assert "404" in results[0].error
+
+
+# --- The prompt loop -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("keys", "expected"),
+    [
+        ("a\n", Choice.ACCEPT),
+        ("accept\n", Choice.ACCEPT),
+        ("d\n", Choice.DECLINE),
+        ("decline\n", Choice.DECLINE),
+        ("s\n", Choice.SKIP),
+        ("A\n", Choice.ACCEPT),
+    ],
+)
+def test_each_answer_records_a_choice(keys, expected):
+    review = review_with(keys + "n\n", invitations=(LAB_1,))
+
+    assert review.choices[0] is expected
+
+
+def test_return_keeps_the_existing_choice():
+    """Editing one entry must not quietly undo the others."""
+    review = review_with("a\na\nd\ne\n\n\n\ny\n")
+
+    assert review.choices == (Choice.ACCEPT, Choice.ACCEPT, Choice.DECLINE)
+    assert review.stage is Stage.CONFIRMED
+
+
+def test_an_unrecognised_answer_keeps_the_default():
+    """The confirmation screen is where a mistyped answer is caught."""
+    review = review_with("zzz\n" + "n\n", invitations=(LAB_1,))
+
+    assert review.choices[0] is Choice.SKIP
+
+
+def test_quitting_mid_review_cancels():
+    review = review_with("a\nq\n")
+
+    assert review.stage is Stage.CANCELLED
+
+
+def test_a_closed_input_cancels():
+    """A closed pipe must cancel rather than raise."""
+    review = review_with("a\n")
+
+    assert review.stage is Stage.CANCELLED
+
+
+def test_declining_to_confirm_cancels():
+    review = review_with("a\na\na\nn\n")
+
+    assert review.stage is Stage.CANCELLED
+    assert review.choices == (Choice.ACCEPT,) * 3
+
+
+def test_editing_then_confirming_reaches_confirmed():
+    review = review_with("a\ns\ns\ne\nd\ns\ns\ny\n")
+
+    assert review.stage is Stage.CONFIRMED
+    assert review.choices[0] is Choice.DECLINE
+
+
+def test_the_review_shows_every_invitation_before_confirming():
+    output = io.StringIO()
+    shell.review_interactively(
+        begin_review(PENDING), FakeTerminal("a\na\na\nn\n"), output
+    )
+
+    shown = output.getvalue()
+
+    for invitation in PENDING:
+        assert invitation.repository in shown
+
+
+# --- Exit codes ------------------------------------------------------------
+
+
+def run_accept_cli(monkeypatch, invitations=PENDING, review=None, error=None, tty=True):
+    """Invoke ``handle_accept`` with the listing and the review stubbed."""
+    if error is not None:
+        monkeypatch.setattr(shell, "list_pending", _raiser(error))
+    else:
+        monkeypatch.setattr(shell, "list_pending", lambda org: invitations)
+
+    stdin = FakeTerminal("") if tty else io.StringIO("")
+    monkeypatch.setattr(sys, "stdin", stdin)
+
+    if review is not None:
+        monkeypatch.setattr(shell, "review_interactively", lambda *a: review)
+
+    return shell.handle_accept(argparse.Namespace(org=None))
+
+
+def _raiser(error):
+    def raise_it(*args, **kwargs):
+        raise error
+
+    return raise_it
+
+
+def test_nothing_pending_exits_zero(monkeypatch, capsys):
+    assert run_accept_cli(monkeypatch, invitations=()) == 0
+    assert "No invitations" in capsys.readouterr().out
+
+
+def test_without_a_terminal_it_lists_and_exits_two(monkeypatch, capsys):
+    """A review cannot be conducted down a pipe; blocking would be worse."""
+    assert run_accept_cli(monkeypatch, tty=False) == 2
+
+    captured = capsys.readouterr()
+    assert "alice/lab-1" in captured.out
+    assert "needs a terminal" in captured.err
+
+
+def test_a_cancelled_review_changes_nothing(monkeypatch, capsys):
+    done = stub_actions(monkeypatch)
+    review = cancel(begin_review(PENDING))
+
+    assert run_accept_cli(monkeypatch, review=review) == 0
+    assert done == []
+    assert "Cancelled" in capsys.readouterr().out
+
+
+def test_a_confirmed_review_exits_zero(monkeypatch, capsys):
+    stub_actions(monkeypatch)
+    review = Review(
+        PENDING, (Choice.ACCEPT, Choice.SKIP, Choice.SKIP), 3, Stage.CONFIRMED
+    )
+
+    assert run_accept_cli(monkeypatch, review=review) == 0
+    assert "1 accepted" in capsys.readouterr().out
+
+
+def test_a_failed_action_exits_one(monkeypatch, capsys):
+    stub_actions(monkeypatch, failing={1})
+    review = Review(
+        PENDING, (Choice.ACCEPT, Choice.SKIP, Choice.SKIP), 3, Stage.CONFIRMED
+    )
+
+    assert run_accept_cli(monkeypatch, review=review) == 1
+    assert "404" in capsys.readouterr().out
+
+
+def test_an_unlistable_set_of_invitations_exits_two(monkeypatch, capsys):
+    error = AdapterError("gh auth login required")
+
+    assert run_accept_cli(monkeypatch, error=error) == 2
+    assert "auth login" in capsys.readouterr().err
