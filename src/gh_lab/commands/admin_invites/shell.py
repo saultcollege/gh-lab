@@ -346,7 +346,7 @@ def render_choices(review: Review) -> str:
     lines = ["", "You chose:"]
 
     for invitation, choice in review.decided:
-        lines.append(f"{INDENT}{CHOICE_LABELS[choice]}  {invitation.repository}")
+        lines.append(f"{INDENT}{CHOICE_LABELS[choice]}  {invitation.name}")
 
     if not review.decided:
         lines.append(f"{INDENT}nothing")
@@ -366,7 +366,7 @@ def render_actions(
     lines = [""]
 
     for result in results:
-        line = f"{INDENT}{CHOICE_LABELS[result.choice]}  {result.invitation.repository}"
+        line = f"{INDENT}{CHOICE_LABELS[result.choice]}  {result.invitation.name}"
         lines.append(f"{line} — {result.error}" if result.error else line)
 
     counts = [

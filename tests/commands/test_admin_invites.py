@@ -475,21 +475,43 @@ def test_an_invitation_without_an_inviter_is_still_usable():
     "entry",
     [
         {"repository": {"full_name": "student/lab"}},
-        {"id": 1},
         {"id": "not-a-number", "repository": {"full_name": "student/lab"}},
-        {"id": 1, "repository": {"full_name": ""}},
-        {"id": 1, "repository": "not-an-object"},
+        {},
     ],
 )
-def test_an_entry_that_cannot_be_acted_on_is_dropped(entry):
-    """Without an id and a repository there is nothing to accept or show."""
+def test_an_entry_without_an_identifier_is_dropped(entry):
+    """The id is the only thing accepting or declining needs."""
     assert parse_invitation(entry) is None
 
 
-def test_unusable_entries_do_not_hide_the_usable_ones():
+@pytest.mark.parametrize(
+    "repository",
+    [None, "not-an-object", {}, {"full_name": ""}],
+)
+def test_an_invitation_to_a_deleted_repository_is_kept(repository):
+    """GitHub returns a null repository once the repository is gone.
+
+    Dropping it would hide an invitation that can still be declined, which is
+    the only way to clear one.
+    """
+    invitation = parse_invitation(invitation_entry(repository=repository))
+
+    assert invitation is not None
+    assert invitation.id == 1
+    assert invitation.repository is None
+
+
+def test_a_deleted_repository_is_named_as_such():
+    invitation = parse_invitation(invitation_entry(repository=None))
+
+    assert "no longer exists" in invitation.name
+    assert "no longer exists" in invitation.display
+
+
+def test_every_entry_with_an_identifier_survives():
     entries = [invitation_entry(1), {"id": 2}, invitation_entry(3, "student/lab-2")]
 
-    assert [i.id for i in parse_invitations(entries)] == [1, 3]
+    assert [i.id for i in parse_invitations(entries)] == [1, 2, 3]
 
 
 def test_an_empty_listing_shapes_to_nothing():
@@ -821,3 +843,11 @@ def test_an_unlistable_set_of_invitations_exits_two(monkeypatch, capsys):
 
     assert run_accept_cli(monkeypatch, error=error) == 2
     assert "auth login" in capsys.readouterr().err
+
+
+def test_a_deleted_repository_is_shown_without_a_permission():
+    """It grants access to nothing, so the permission is noise."""
+    invitation = parse_invitation(invitation_entry(repository=None))
+
+    assert invitation.display == invitation.name
+    assert "write" not in invitation.display

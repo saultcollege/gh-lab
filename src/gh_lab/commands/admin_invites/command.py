@@ -219,58 +219,71 @@ class RepositoryInvitation:
     """An invitation for the current user to collaborate on one repository.
 
     Attributes:
-        id: GitHub's identifier, needed to accept or decline it.
-        repository: The full ``owner/name`` of the repository.
+        id: GitHub's identifier, and all that acting on the invitation needs.
+        repository: The full ``owner/name``, or ``None`` when GitHub no longer
+            names one because the repository has been deleted.
         inviter: Who sent the invitation, when GitHub said.
         permission: The access the invitation grants.
     """
 
     id: int
-    repository: str
+    repository: str | None = None
     inviter: str | None = None
     permission: str | None = None
 
     @property
+    def name(self) -> str:
+        """The repository, or a stand-in when GitHub no longer names one."""
+        return self.repository or MISSING_REPOSITORY
+
+    @property
     def display(self) -> str:
-        """A human-readable identification, e.g. ``org/lab-1 (write)``."""
-        return (
-            f"{self.repository} ({self.permission})"
-            if self.permission
-            else (self.repository)
-        )
+        """A human-readable identification, e.g. ``org/lab-1 (write)``.
+
+        The permission is left off an invitation whose repository is gone: it
+        grants access to nothing, and reads as noise beside the stand-in.
+        """
+        if self.repository is None or not self.permission:
+            return self.name
+
+        return f"{self.name} ({self.permission})"
 
 
 def parse_invitation(entry: Mapping[str, object]) -> RepositoryInvitation | None:
     """Shape one entry of the invitations listing.
 
-    Returns ``None`` for an entry without the identifier and repository needed
-    to act on it. GitHub's schema makes both non-nullable, so this should not
-    happen; skipping the entry rather than raising follows what listing
-    collaborators already does, and keeps one odd row from hiding a whole class
-    of invitations that are perfectly usable.
+    Only the identifier is required, because it is all that accepting or
+    declining needs. GitHub answers with a null repository for an invitation
+    whose repository has since been deleted, and those are worth showing rather
+    than hiding: they cannot be accepted, but they can be declined, which is the
+    only way to clear one.
+
+    Returns ``None`` only when there is no usable identifier, which leaves
+    nothing that could be acted on.
 
     Pure: takes already-parsed JSON and returns plain data.
     """
     identifier = entry.get("id")
-    repository = entry.get("repository")
 
-    if not isinstance(identifier, int) or not isinstance(repository, dict):
+    if not isinstance(identifier, int):
         return None
+
+    repository = entry.get("repository")
+    repository = repository if isinstance(repository, dict) else {}
 
     full_name = repository.get("full_name")
-
-    if not isinstance(full_name, str) or not full_name:
-        return None
-
     inviter = entry.get("inviter")
     permission = entry.get("permissions")
 
     return RepositoryInvitation(
         id=identifier,
-        repository=full_name,
+        repository=full_name if isinstance(full_name, str) and full_name else None,
         inviter=inviter.get("login") if isinstance(inviter, dict) else None,
         permission=permission if isinstance(permission, str) else None,
     )
+
+
+MISSING_REPOSITORY = "(repository no longer exists)"
 
 
 def parse_invitations(
