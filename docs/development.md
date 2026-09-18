@@ -77,6 +77,42 @@ one went unnoticed.
 
     uv run ruff format --check .
 
+## Branches
+
+`main` is protected and changes land through pull requests. Name a branch for
+the primary intent of the change, with one of:
+
+| Prefix | For |
+| --- | --- |
+| `feature/` | A capability that did not exist before. |
+| `bugfix/` | Behaviour that is wrong today. |
+| `refactor/` | A change to structure that leaves behaviour alone. |
+| `docs/` | Documentation only, with no change to code. |
+| `chore/` | Tooling, CI, dependencies and release mechanics. |
+
+Three rules make this usable rather than arguable:
+
+* **This names branches, not commits.** A branch carries whatever commits the
+  change needed, and they need not share its prefix — a `bugfix/` branch may
+  well contain a commit that adds something. The prefix is chosen once, for the
+  branch, and says why the work exists.
+* **The test for `refactor/` is the test suite.** If a test had to change to
+  describe new behaviour, the branch is not a refactor.
+* **A branch that both fixes and adds is best split.** When it is not split,
+  name it for the reason it exists, which is usually the defect that prompted
+  it.
+
+`bugfix/` earns a prefix of its own because of how this extension is
+distributed: `gh extension upgrade lab` is a `git pull` of the default branch,
+so every commit merged to `main` reaches every user immediately. A bug fixed
+here is one somebody is feeling right now.
+
+There is deliberately no `enhancement/`. It would mean the same as `feature/`:
+Conventional Commits has `feat` alone, GitHub's labels have `enhancement`
+alone, and no established convention keeps both. The line between "adds a
+capability" and "improves one that exists" would have to be drawn on nearly
+every branch, and repays nothing for the effort.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on pull requests and on pushes to `main`, in
