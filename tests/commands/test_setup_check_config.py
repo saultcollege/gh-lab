@@ -14,7 +14,6 @@ from gh_lab.course_config import ConfigError
 
 LAB_CONFIG = {
     "repo-name": "csd110-lab-1",
-    "template-repo": "https://github.com/saultcollege-csd110/lab-1-template",
     "course-config": "saultcollege-csd110/course-config/26f.json",
 }
 
@@ -47,12 +46,24 @@ def test_branch_pattern_can_be_overridden():
     assert parse_lab_config(data).branch_pattern == "week-{lab}"
 
 
-@pytest.mark.parametrize("missing", ["repo-name", "template-repo", "course-config"])
+@pytest.mark.parametrize("missing", ["repo-name", "course-config"])
 def test_a_missing_required_field_names_itself(missing):
     data = {key: value for key, value in LAB_CONFIG.items() if key != missing}
 
     with pytest.raises(ConfigError, match=missing):
         parse_lab_config(data)
+
+
+def test_unrecognised_fields_are_ignored():
+    """A file may carry settings this tool does not read and still be valid.
+
+    Templates are issued once and live in student repositories for a term, so a
+    key nothing looks at must not be the difference between a file that parses
+    and one that does not.
+    """
+    data = {**LAB_CONFIG, "template-repo": "saultcollege-csd110/lab-1-template"}
+
+    assert parse_lab_config(data).repo_name == "csd110-lab-1"
 
 
 def test_lab_config_must_be_an_object():
@@ -63,12 +74,12 @@ def test_lab_config_must_be_an_object():
 # --- course-org is derived, not configured ---------------------------------
 
 
-def test_course_org_is_derived_from_the_template_owner():
-    """The course org is, by definition, whoever owns the lab template."""
+def test_course_org_is_derived_from_the_course_config_owner():
+    """The course org is, by definition, whoever owns the course config."""
     assert parse_lab_config(LAB_CONFIG).course_org == "saultcollege-csd110"
 
 
-def test_course_org_is_derived_from_the_shorthand_template_form():
-    data = {**LAB_CONFIG, "template-repo": "Some-Org/lab-1-template"}
+def test_course_org_follows_the_course_config_to_another_owner():
+    data = {**LAB_CONFIG, "course-config": "Some-Org/course-config/26f.json"}
 
-    assert parse_lab_config(data).course_org == "some-org"
+    assert parse_lab_config(data).course_org == "Some-Org"

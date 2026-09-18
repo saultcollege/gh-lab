@@ -13,7 +13,6 @@
 ```json
 {
   "repo-name": "csd110-lab-1",
-  "template-repo": "https://github.com/saultcollege-csd110/lab-1-template",
   "course-config": "saultcollege-csd110/course-info/config/26f.json",
   "branch-pattern": "lab-{lab}",
   "lab": "1"
@@ -23,13 +22,12 @@
 | Property | Required | Meaning |
 | --- | --- | --- |
 | `repo-name` | yes | The name a student's repository must have. |
-| `template-repo` | yes | The template the repository must be created from. A `https://github.com/owner/name` URL or an `owner/name` shorthand. |
 | `course-config` | yes | Where the course configuration lives. See below. |
 | `branch-pattern` | no | The expected branch name, with `{lab}` replaced by the lab. Defaults to `lab-{lab}`. |
 | `lab` | no | Which lab this repository is for. See below. |
 
 There is no `course-org` property. The course organization is, by definition,
-whoever owns `template-repo`, so it is derived from it rather than stated twice.
+whoever owns `course-config`, so it is derived from it rather than stated twice.
 
 ### `lab`, and the two lab styles
 
@@ -199,7 +197,7 @@ centrally.
 | --- | --- |
 | Repository name matches `repo-name` | GitHub |
 | Current branch matches `branch-pattern` | git, or the workflow environment |
-| Repository was generated from `template-repo` | GitHub |
+| Repository is not a fork | GitHub |
 | Repository is private | GitHub |
 | Every faculty member is a collaborator | GitHub, and the course configuration |
 | Repository is not owned by the course organization | GitHub |

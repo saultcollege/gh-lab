@@ -24,7 +24,6 @@ from typing import Any
 from gh_lab.course_config import (
     ConfigError,
     CourseConfigRef,
-    normalise_repo_ref,
     optional_string,
     parse_course_config_ref,
     require_string,
@@ -41,7 +40,6 @@ class LabConfig:
 
     Attributes:
         repo_name: The name the student's repository must have.
-        template_repo: The template the repository should have been created from.
         course_config: Where to find the course configuration.
         branch_pattern: Expected branch name, with ``{lab}`` replaced by the lab.
         lab: The lab this repository is for. Set by templates that serve a single
@@ -50,21 +48,19 @@ class LabConfig:
     """
 
     repo_name: str
-    template_repo: str
     course_config: CourseConfigRef
     branch_pattern: str = DEFAULT_BRANCH_PATTERN
     lab: str | None = None
 
     @property
-    def course_org(self) -> str | None:
-        """The organization that owns the lab template.
+    def course_org(self) -> str:
+        """The organization that runs the course.
 
         Student repositories must not be owned by it. It is not configured
-        separately because it is, by definition, the owner of ``template_repo``.
+        separately because it is, by definition, whoever owns the course
+        configuration.
         """
-        reference = normalise_repo_ref(self.template_repo)
-
-        return reference.split("/")[0] if reference else None
+        return self.course_config.owner
 
 
 def parse_lab_config(data: Any, source: str = LAB_CONFIG_PATH) -> LabConfig:
@@ -74,7 +70,6 @@ def parse_lab_config(data: Any, source: str = LAB_CONFIG_PATH) -> LabConfig:
 
     return LabConfig(
         repo_name=require_string(data, "repo-name", source),
-        template_repo=require_string(data, "template-repo", source),
         course_config=parse_course_config_ref(
             require_string(data, "course-config", source), source
         ),
