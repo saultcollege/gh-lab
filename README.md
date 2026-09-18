@@ -74,9 +74,9 @@ If one repository holds several labs, say which one you are working on:
 
     gh lab setup-check 2
 
-It checks that the repository is named correctly, is private, was created from
-the lab template, is owned by you rather than the course organization, that your
-faculty are collaborators, and that you are on the right branch.
+It checks that the repository is named correctly, is private, is not a fork, is
+owned by you rather than the course organization, that your faculty are
+collaborators, and that you are on the right branch.
 
 Anything it cannot check — because the GitHub CLI cannot reach GitHub, or
 because the token it is using cannot read your course's configuration — is

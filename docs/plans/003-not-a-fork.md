@@ -118,7 +118,7 @@ courses whose organizations may not be locked down.
    `course_org` tests at the course configuration owner.
 9. [+] Add tests for a fork failing, a non-fork passing, and an unreadable
    repository skipping.
-10. [ ] Update `docs/configuration.md` — the field table, the example, the
+10. [+] Update `docs/configuration.md` — the field table, the example, the
     course-organization derivation, and the `setup-check` table — and the
     sentence in `README.md` listing what is checked.
 11. [ ] Check `.github/workflows/ci.yml` per `AGENTS.md`. It greps `--help`
