@@ -121,7 +121,7 @@ courses whose organizations may not be locked down.
 10. [+] Update `docs/configuration.md` — the field table, the example, the
     course-organization derivation, and the `setup-check` table — and the
     sentence in `README.md` listing what is checked.
-11. [ ] Check `.github/workflows/ci.yml` per `AGENTS.md`. It greps `--help`
-    output for `setup-check` and never invokes the check, so this is expected to
-    need nothing.
+11. [+] Check `.github/workflows/ci.yml` per `AGENTS.md`. It does invoke the
+    check, against a `.lab/config.json` it writes itself, so that fixture had to
+    drop `template-repo` too.
 12. [ ] Run the tests, `ruff check` and `ruff format --check`.

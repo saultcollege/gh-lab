@@ -130,7 +130,7 @@ jobs:
       - name: setup-check reports failures cleanly in a lab repository
         run: |
           mkdir -p .lab
-          printf '%s' '{"repo-name":"example-lab-1","template-repo":"https://github.com/example-org/lab-1-template","course-config":"example-org/course-config/26f.json"}' > .lab/config.json
+          printf '%s' '{"repo-name":"example-lab-1","course-config":"example-org/course-config/26f.json"}' > .lab/config.json
           set +e
           output=$(gh lab setup-check 1 2>&1)
           status=$?
