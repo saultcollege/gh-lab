@@ -2,7 +2,7 @@
 
 ## Status
 
-ACTIVE
+DONE
 
 ## Why
 
@@ -124,4 +124,4 @@ courses whose organizations may not be locked down.
 11. [+] Check `.github/workflows/ci.yml` per `AGENTS.md`. It does invoke the
     check, against a `.lab/config.json` it writes itself, so that fixture had to
     drop `template-repo` too.
-12. [ ] Run the tests, `ruff check` and `ruff format --check`.
+12. [+] Run the tests, `ruff check` and `ruff format --check`.
