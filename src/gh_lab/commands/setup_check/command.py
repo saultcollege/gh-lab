@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from gh_lab.adapters import AdapterError, git, github_cli
+from gh_lab.adapters import AdapterError, ToolNotFound, git, github_cli
 from gh_lab.commands.setup_check.config import (
     LAB_CONFIG_PATH,
     LabConfig,
@@ -32,6 +32,28 @@ class Status(StrEnum):
     PASS = "pass"
     FAIL = "fail"
     SKIPPED = "skipped"
+
+
+class Advice(StrEnum):
+    """What to tell the reader about the checks that could not run.
+
+    Chosen here rather than in the shell layer because it is a conclusion drawn
+    from what the run observed. Only the wording belongs to the shell.
+
+    The distinction that matters most is between "the GitHub CLI could not
+    reach GitHub" and "it reached GitHub and was refused". A single successful
+    call proves the caller is signed in, which makes advising them to sign in
+    demonstrably wrong.
+    """
+
+    NONE = "none"
+    INSTALL_GH = "install-gh"
+    SIGN_IN = "sign-in"
+    ENV_TOKEN_REJECTED = "env-token-rejected"
+    COURSE_CONFIG_UNREADABLE = "course-config-unreadable"
+    CODESPACE_TOKEN_SCOPE = "codespace-token-scope"
+    ACTIONS_TOKEN = "actions-token"
+    SEE_REASONS = "see-reasons"
 
 
 @dataclass(frozen=True)
@@ -68,6 +90,9 @@ class SetupCheckReport:
     checks: tuple[Check, ...] = ()
     lab: str = ""
     faculty_skipped_in_actions: bool = False
+    advice: Advice = Advice.NONE
+    token_variable: str | None = None
+    """The environment variable supplying gh's token, if one is."""
 
     @property
     def failures(self) -> tuple[Check, ...]:
@@ -101,6 +126,10 @@ class RepoFacts:
     collaborators: tuple[str, ...] | None = None
     current_branch: str | None = None
     unavailable: Mapping[str, str] = field(default_factory=dict)
+    github_reached: bool = False
+    """Whether at least one request to GitHub through gh succeeded."""
+    github_cli_missing: bool = False
+    """Whether gh itself could not be found."""
 
 
 def in_github_actions(env: Mapping[str, str] | None = None) -> bool:
@@ -108,6 +137,36 @@ def in_github_actions(env: Mapping[str, str] | None = None) -> bool:
     env = os.environ if env is None else env
 
     return env.get("GITHUB_ACTIONS") == "true"
+
+
+# gh reads GH_TOKEN first and falls back to GITHUB_TOKEN. Both take precedence
+# over stored credentials, and while either is set `gh auth login` refuses to
+# run, so no advice may suggest it without first clearing them.
+TOKEN_VARIABLES = ("GH_TOKEN", "GITHUB_TOKEN")
+
+
+def env_token_variable(env: Mapping[str, str]) -> str | None:
+    """Name the environment variable gh is taking its token from, if any.
+
+    Returns the variable rather than a boolean because the advice quotes it:
+    telling someone to clear GITHUB_TOKEN when they set GH_TOKEN would send
+    them after the wrong one.
+    """
+    for name in TOKEN_VARIABLES:
+        if (env.get(name) or "").strip():
+            return name
+
+    return None
+
+
+def in_codespace(env: Mapping[str, str]) -> bool:
+    """Whether the command is running inside a GitHub Codespace.
+
+    A Codespace is given a token scoped to the repository it belongs to, so it
+    cannot read a private repository in another organization however well
+    signed in the student is.
+    """
+    return env.get("CODESPACES") == "true"
 
 
 def resolve_branch(
@@ -138,18 +197,36 @@ def _skipped(check_id: str, title: str, reason: str) -> Check:
     return Check(id=check_id, title=title, status=Status.SKIPPED, detail=reason)
 
 
-def _course_reason(error: str | None) -> str:
+def _course_reason(error: str | None, *, token_scoped: bool = False) -> str:
     """Explain why the faculty check could not run.
 
     GitHub answers 404 for a repository you cannot see as well as for one that
-    does not exist, so a failure cannot tell the two apart. Name both, since the
-    student can act on one of them and only their instructor can act on the other.
+    does not exist, so a failure cannot tell the two apart.
+
+    The faculty list is public precisely so that this does not happen, so both
+    messages describe a course whose configuration is misplaced rather than a
+    student who has done something wrong.
+
+    Args:
+        error: What the failed read reported, if anything.
+        token_scoped: Whether the token in use is scoped to this repository, as
+            a Codespace's is. Membership is then beside the point — the student
+            may well be a member — so saying otherwise would send them to fix
+            something that is not broken.
     """
-    base = (
-        "the course configuration could not be read. Either you are not yet a "
-        "member of the course organization, or the course configuration has "
-        "moved — ask your instructor if this does not resolve itself"
-    )
+    if token_scoped:
+        base = (
+            "the course configuration could not be read, because the token this "
+            "environment provides can only see this repository. In a Codespace "
+            "that means the course's faculty list is not public where it should "
+            "be, which is nothing you have done wrong — tell your instructor"
+        )
+    else:
+        base = (
+            "the course configuration could not be read. It may have moved, or "
+            "it may be private and you not yet a member of the course "
+            "organization — ask your instructor if this does not resolve itself"
+        )
 
     return f"{base} ({error})" if error else base
 
@@ -290,11 +367,17 @@ def _check_faculty(
     course_config: CourseConfig | None,
     facts: RepoFacts,
     course_config_error: str | None = None,
+    *,
+    token_scoped: bool = False,
 ) -> Check:
     title = "Faculty have access"
 
     if course_config is None:
-        return _skipped("faculty", title, _course_reason(course_config_error))
+        return _skipped(
+            "faculty",
+            title,
+            _course_reason(course_config_error, token_scoped=token_scoped),
+        )
 
     if facts.collaborators is None:
         return _skipped(
@@ -396,6 +479,52 @@ def _check_not_course_org(lab_config: LabConfig, facts: RepoFacts) -> Check:
     )
 
 
+def choose_advice(
+    *,
+    anything_skipped: bool,
+    in_actions: bool,
+    github_cli_missing: bool,
+    github_reached: bool,
+    course_config_read: bool,
+    course_config_fetched: bool,
+    env: Mapping[str, str],
+) -> Advice:
+    """Decide what to say about the checks that could not run.
+
+    Pure, and a plain decision table: first match wins.
+
+    The command previously advised ``gh auth login`` whenever anything was
+    skipped, for any cause. That is wrong wherever the environment supplies a
+    token, because gh refuses to run it then, and it is wrong wherever a
+    request to GitHub has already succeeded, because that proves the caller is
+    signed in.
+    """
+    if not anything_skipped:
+        return Advice.NONE
+
+    # A missing gh outranks the workflow case: the token snippet would be
+    # useless advice on a runner that has no gh to give it to.
+    if github_cli_missing:
+        return Advice.INSTALL_GH
+
+    if in_actions:
+        return Advice.ACTIONS_TOKEN
+
+    if not github_reached:
+        if env_token_variable(env):
+            return Advice.ENV_TOKEN_REJECTED
+        return Advice.SIGN_IN
+
+    if not course_config_read:
+        # Only an unread *file* points at the token's reach. One that was read
+        # and would not parse is the instructor's to fix.
+        if in_codespace(env) and not course_config_fetched:
+            return Advice.CODESPACE_TOKEN_SCOPE
+        return Advice.COURSE_CONFIG_UNREADABLE
+
+    return Advice.SEE_REASONS
+
+
 def evaluate(
     *,
     lab: str,
@@ -404,10 +533,14 @@ def evaluate(
     facts: RepoFacts,
     in_actions: bool = False,
     course_config_error: str | None = None,
+    course_config_fetched: bool = False,
+    env: Mapping[str, str] | None = None,
 ) -> SetupCheckReport:
     """Run every applicable check and return the report.
 
-    Pure: every input is plain data and nothing is read or written.
+    Pure: every input is plain data and nothing is read or written. ``env`` is
+    taken as an argument rather than read from :data:`os.environ` for that
+    reason, and defaults to empty rather than to the real environment.
 
     Args:
         lab: The lab being checked.
@@ -419,7 +552,13 @@ def evaluate(
             check is omitted entirely: the available token can neither list
             collaborators nor read the course organization's private repository.
         course_config_error: Why the course configuration was unavailable.
+        course_config_fetched: Whether the file was read, whatever became of
+            parsing it. Distinguishes a refused read from a malformed file.
+        env: Environment to read for token and Codespace detection.
     """
+    env = {} if env is None else env
+    token_variable = env_token_variable(env)
+
     checks = [
         _check_repo_name(lab_config, facts),
         _check_branch(lab, lab_config, facts),
@@ -428,14 +567,35 @@ def evaluate(
     ]
 
     if not in_actions:
-        checks.append(_check_faculty(course_config, facts, course_config_error))
+        checks.append(
+            _check_faculty(
+                course_config,
+                facts,
+                course_config_error,
+                token_scoped=in_codespace(env) and not course_config_fetched,
+            )
+        )
 
     checks.append(_check_not_course_org(lab_config, facts))
+
+    advice = choose_advice(
+        anything_skipped=any(check.status is Status.SKIPPED for check in checks),
+        in_actions=in_actions,
+        github_cli_missing=facts.github_cli_missing,
+        # Reading the course configuration is itself a successful request, so
+        # it counts as having reached GitHub even if nothing else did.
+        github_reached=facts.github_reached or course_config_fetched,
+        course_config_read=course_config is not None,
+        course_config_fetched=course_config_fetched,
+        env=env,
+    )
 
     return SetupCheckReport(
         checks=tuple(checks),
         lab=lab,
         faculty_skipped_in_actions=in_actions,
+        advice=advice,
+        token_variable=token_variable,
     )
 
 
@@ -471,33 +631,50 @@ def load_lab_config() -> LabConfig:
     return parse_lab_config(data)
 
 
-def load_course_config(
-    reference: CourseConfigRef,
-) -> tuple[CourseConfig | None, str | None]:
+@dataclass(frozen=True)
+class CourseConfigResult:
+    """The outcome of fetching the course configuration.
+
+    ``fetched`` says the file itself was read. A file that was read but is
+    malformed is a mistake in the course's own configuration, not a sign that
+    the reader cannot see the repository, and the two call for different
+    advice. Collapsing them into a bare ``None`` is what made the command blame
+    authentication for everything.
+    """
+
+    config: CourseConfig | None = None
+    error: str | None = None
+    fetched: bool = False
+
+
+def load_course_config(reference: CourseConfigRef) -> CourseConfigResult:
     """Fetch and parse the course configuration from its private repository.
 
     Reads through the GitHub CLI, so it uses the authentication the environment
-    already provides rather than asking the student to arrange any.
-
-    Returns:
-        The configuration, or ``(None, reason)`` if it could not be obtained.
+    already provides rather than asking the student to arrange any. Note that
+    what that authentication can *see* varies: a Codespace or workflow token is
+    scoped to its own repository and cannot read another organization's.
     """
     try:
         raw = github_cli.fetch_repo_file(
             reference.owner, reference.repo, reference.path, reference.ref
         )
     except AdapterError as error:
-        return None, str(error)
+        return CourseConfigResult(error=str(error))
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as error:
-        return None, f"{reference} is not valid JSON: {error}"
+        return CourseConfigResult(
+            error=f"{reference} is not valid JSON: {error}", fetched=True
+        )
 
     try:
-        return parse_course_config(data, source=str(reference)), None
+        return CourseConfigResult(
+            config=parse_course_config(data, source=str(reference)), fetched=True
+        )
     except ConfigError as error:
-        return None, str(error)
+        return CourseConfigResult(error=str(error), fetched=True)
 
 
 def gather_facts(*, in_actions: bool, env: Mapping[str, str]) -> RepoFacts:
@@ -511,15 +688,19 @@ def gather_facts(*, in_actions: bool, env: Mapping[str, str]) -> RepoFacts:
     name = owner = None
     is_private = None
     template_repo = None
+    github_reached = False
+    github_cli_missing = False
 
     try:
         repo = github_cli.repo_view()
+        github_reached = True
         name = repo.get("name")
         owner_field = repo.get("owner")
         owner = owner_field.get("login") if isinstance(owner_field, dict) else None
         is_private = repo.get("isPrivate")
         template_repo = normalise_repo_ref(repo.get("templateRepository"))
     except AdapterError as error:
+        github_cli_missing = isinstance(error, ToolNotFound)
         unavailable["repo"] = f"could not ask GitHub about this repository ({error})"
 
     try:
@@ -536,6 +717,7 @@ def gather_facts(*, in_actions: bool, env: Mapping[str, str]) -> RepoFacts:
     elif owner and name:
         try:
             collaborators = github_cli.list_collaborators(owner, name)
+            github_reached = True
         except AdapterError as error:
             unavailable["collaborators"] = f"could not list collaborators ({error})"
     else:
@@ -549,6 +731,8 @@ def gather_facts(*, in_actions: bool, env: Mapping[str, str]) -> RepoFacts:
         collaborators=collaborators,
         current_branch=current_branch,
         unavailable=unavailable,
+        github_reached=github_reached,
+        github_cli_missing=github_cli_missing,
     )
 
 
@@ -581,24 +765,23 @@ def run(
 
     actions = in_github_actions(env)
 
-    # A workflow token cannot read a private repository in the course
-    # organization, so do not make a request that is bound to fail. The faculty
-    # check, the only thing the course configuration feeds, is skipped in
-    # Actions anyway.
-    course_config: CourseConfig | None = None
-    course_config_error: str | None = None
+    # The faculty check, the only thing the course configuration feeds, is not
+    # built at all in Actions, because a workflow token cannot list
+    # collaborators. Fetching the configuration there would be work thrown
+    # away, whether or not the file is one a workflow token could read.
+    course = CourseConfigResult()
     if not actions:
-        course_config, course_config_error = load_course_config(
-            lab_config.course_config
-        )
+        course = load_course_config(lab_config.course_config)
 
     facts = gather_facts(in_actions=actions, env=env)
 
     return evaluate(
         lab=resolved_lab,
         lab_config=lab_config,
-        course_config=course_config,
+        course_config=course.config,
         facts=facts,
         in_actions=actions,
-        course_config_error=course_config_error,
+        course_config_error=course.error,
+        course_config_fetched=course.fetched,
+        env=env,
     )

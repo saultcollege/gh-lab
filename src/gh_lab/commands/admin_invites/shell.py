@@ -154,7 +154,7 @@ def render_roster(report: SendReport) -> str:
     """Describe who a dry run would have invited."""
     lines = [
         f"Would invite {_count(len(report.roster))} to {report.org}",
-        f"from {report.source}",
+        *_sources(report),
         *_skipped_self(report),
     ]
 
@@ -172,7 +172,7 @@ def render_results(report: SendReport) -> str:
     """Describe what happened to each person, and summarise it."""
     lines = [
         f"Inviting {_count(len(report.roster))} to {report.org}",
-        f"from {report.source}",
+        *_sources(report),
         *_skipped_self(report),
     ]
 
@@ -187,6 +187,21 @@ def render_results(report: SendReport) -> str:
     lines.append(_summary(report))
 
     return "\n".join(lines)
+
+
+def _sources(report: SendReport) -> list[str]:
+    """Name both files the roster was assembled from.
+
+    Faculty come from the public configuration and students from the private
+    roster beside it, so naming only the one given on the command line would
+    account for half the list.
+    """
+    lines = [f"from {report.source}"]
+
+    if report.roster_source:
+        lines.append(f"and {report.roster_source}")
+
+    return lines
 
 
 def _skipped_self(report: SendReport) -> list[str]:

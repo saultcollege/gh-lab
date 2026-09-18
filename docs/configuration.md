@@ -4,9 +4,9 @@
 
 * **`.lab/config.json`**, committed in the root of a lab repository and written
   by the lab template. It describes one lab.
-* **the course configuration**, held in a private repository owned by the course
-  organization. It lists the people on the course — faculty, and optionally
-  students — and is shared by every lab in it.
+* **the course configuration**, a pair of files owned by the course
+  organization — a public one naming the faculty and a private one naming the
+  students. It is shared by every lab in the course.
 
 ## `.lab/config.json`
 
@@ -14,7 +14,7 @@
 {
   "repo-name": "csd110-lab-1",
   "template-repo": "https://github.com/saultcollege-csd110/lab-1-template",
-  "course-config": "saultcollege-csd110/course-config/26f.json",
+  "course-config": "saultcollege-csd110/course-info/config/26f.json",
   "branch-pattern": "lab-{lab}",
   "lab": "1"
 }
@@ -60,9 +60,9 @@ Three spellings are accepted, because whoever writes the template is as likely t
 paste a link from the browser as to type the short form:
 
 ```jsonc
-"course-config": "saultcollege-csd110/course-config/26f.json"
-"course-config": "saultcollege-csd110/course-config/26f.json@main"
-"course-config": "https://github.com/saultcollege-csd110/course-config/blob/main/26f.json"
+"course-config": "saultcollege-csd110/course-info/config/26f.json"
+"course-config": "saultcollege-csd110/course-info/config/26f.json@main"
+"course-config": "https://github.com/saultcollege-csd110/course-info/blob/main/config/26f.json"
 ```
 
 The short form is `owner/repo/path`, where everything after the repository name
@@ -81,25 +81,61 @@ It lives here rather than in the course configuration deliberately — see
 
 ## The course configuration
 
+Two files, in two repositories named by convention. Public information goes in
+the public one; students and anything else private go in the private one.
+
+| Repository | Visibility | Holds |
+| --- | --- | --- |
+| `<org>/course-info` | public | `faculty` |
+| `<org>/course-info-private` | private | `students` |
+
+`<org>/course-info`:
+
 ```json
 {
   "faculty": [
     { "name": "Bob Bob", "github": "bobber24" }
-  ],
+  ]
+}
+```
+
+`<org>/course-info-private`:
+
+```json
+{
   "students": [
     { "name": "Stu Dent", "github": "student" }
   ]
 }
 ```
 
-| Property | Required | Meaning |
-| --- | --- | --- |
-| `faculty` | yes | Who must be a collaborator on every student repository. May be empty. |
-| `students` | no | Who is enrolled in the course. Defaults to empty. |
+| Property | In | Required | Meaning |
+| --- | --- | --- | --- |
+| `faculty` | public | yes | Who must be a collaborator on every student repository. May be empty. |
+| `students` | private | no | Who is enrolled in the course. Defaults to empty. |
 
-The file may live anywhere in a repository the students can read; point
-`course-config` at it. A private repository in the course organization works,
-provided students are members of that organization.
+**Commands name only the public file.** `course-config` in `.lab/config.json`
+and `--config-file` both point at it; the private file is assumed to be the
+same path in a repository of the same name with `-private` appended. Nothing
+ever names both.
+
+The path is the same in both repositories, so one delivery of a course is one
+filename and several sit side by side:
+
+```text
+course-info/config/26f.json          course-info-private/config/26f.json
+course-info/config/26w.json          course-info-private/config/26w.json
+course-info/config/27f.json          course-info-private/config/27f.json
+```
+
+The faculty list is public so that `setup-check` can read it with whatever
+authentication a student's environment already provides — which is what lets a
+student open a Codespace and run it without signing in to anything. Student
+names and GitHub handles are not public, which is why they are held apart.
+
+Both files are required. Listing `students` in the public file is an error
+rather than an oversight to ignore, because it means the roster has been
+published.
 
 Unrecognised properties are ignored, so a file still carrying a `course-org` or
 `branch-pattern` from an earlier version of this tool will not break.
@@ -125,34 +161,32 @@ Each entry has the same shape as a faculty entry: `github` is required, `name` i
 optional, and any other property is ignored. An entry without `github` is an
 error naming its position, exactly as for `faculty`.
 
-The property itself is optional and defaults to empty, so a course configuration
-written before it existed still works.
+The array itself is optional and defaults to empty, so a course can be set up
+before anyone has enrolled.
 
 `setup-check` does not read it. It is read by `gh lab admin invites send`, which
-invites everyone named in the file — faculty and students alike — to the course
-organization. A course that never runs that command does not need a `students`
-array at all.
+invites everyone named in both files — faculty and students alike — to the
+course organization, and names both files as it goes:
+
+```text
+Would invite 13 people to saultcollege-csd217
+from saultcollege-csd217/course-info/config/26f.json
+and saultcollege-csd217/course-info-private/config/26f.json
+```
 
 ## Why the split is where it is
 
-Only the course roster lives in the course configuration. Everything else is
-stated in `.lab/config.json` or derived from it. That is not arbitrary.
+Everything `setup-check` needs about the lab itself is stated in
+`.lab/config.json` rather than in the course configuration, because what a
+student's authentication can *see* varies by where the check runs. A
+devcontainer on their own machine uses their own credentials; a GitHub Actions
+workflow and a Codespace are both given a token scoped to the one repository
+they run in, so neither can read a private repository in the course
+organization.
 
-`setup-check` has to run in two places: a student's devcontainer or Codespace,
-and a GitHub Actions workflow on their pull request. In the devcontainer it uses
-the student's existing GitHub authentication, so it can read a private repository
-in the course organization. **A workflow cannot.** The token available to a
-workflow is scoped to the repository it runs in; reading another repository would
-require a GitHub App or a personal access token stored in the student's own
-repository, and neither is acceptable for student-owned repos.
-
-So anything kept in the course configuration is unavailable to the check when it
-runs in Actions. The faculty check is already skipped there for a separate reason
-— listing collaborators needs write access the workflow token does not have — so
-putting the faculty list there costs nothing. `students` is read only by
-faculty-facing commands, which run on a faculty machine and never in Actions, so
-it costs nothing either. Putting `branch-pattern` there would have cost the
-branch check, which is the one most worth having on a pull request.
+That is also why the faculty list is public: it is the only thing `setup-check`
+needs from outside the student's own repository, so publishing it removes the
+last reason a student would have to sign in to anything.
 
 `branch-pattern` therefore lives in exactly one place. If the course
 configuration could override it, a student would see one expected branch locally
@@ -170,9 +204,11 @@ centrally.
 | Every faculty member is a collaborator | GitHub, and the course configuration |
 | Repository is not owned by the course organization | GitHub |
 
-A check that cannot run — because the student is not signed in to the GitHub CLI,
-or the course configuration is unreachable — is reported as **not checked**
-rather than as a failure, and does not fail the command.
+A check that cannot run — because the GitHub CLI cannot reach GitHub, or
+because the token it is using cannot read the course configuration — is
+reported as **not checked** rather than as a failure, and does not fail the
+command. The summary at the end names which of those it was, and suggests
+signing in only where signing in is actually possible.
 
 ### In GitHub Actions
 

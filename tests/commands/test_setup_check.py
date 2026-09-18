@@ -2,15 +2,25 @@
 
 import argparse
 import dataclasses
+import json
 
 import pytest
 
+from gh_lab.adapters import AdapterError, ToolNotFound
 from gh_lab.cli import build_parser as main_parser
 from gh_lab.cli import main
+from gh_lab.commands.setup_check import shell
 from gh_lab.commands.setup_check.command import (
+    Advice,
+    Check,
+    CourseConfigResult,
     RepoFacts,
+    SetupCheckReport,
     Status,
+    choose_advice,
+    env_token_variable,
     evaluate,
+    in_codespace,
     resolve_branch,
 )
 from gh_lab.commands.setup_check.config import LabConfig
@@ -36,6 +46,9 @@ GOOD_FACTS = RepoFacts(
     template_repo=TEMPLATE_REF,
     collaborators=("student-user", "bobber24"),
     current_branch="lab-1",
+    # These facts describe a run in which GitHub answered, so say so; the
+    # advice is chosen from whether anything reached GitHub at all.
+    github_reached=True,
 )
 
 
@@ -334,10 +347,289 @@ def test_course_config_is_fetched_outside_actions(monkeypatch):
     monkeypatch.setattr(
         command_module,
         "load_course_config",
-        lambda reference: (calls.append(reference), (COURSE_CONFIG, None))[1],
+        lambda reference: (
+            calls.append(reference),
+            CourseConfigResult(config=COURSE_CONFIG, fetched=True),
+        )[1],
     )
 
     report = command_module.run("1", env={})
 
     assert calls == [CONFIG_REF]
     assert status_of(report, "faculty") is Status.PASS
+
+
+# --- Advice: what to say about checks that could not run ---------------------
+#
+# The command used to print "run gh auth login" whenever anything was skipped,
+# for any cause. That is a dead end wherever the environment supplies a token,
+# because gh refuses to run it then, which is exactly what a Codespace does.
+
+
+def test_gh_token_is_preferred_over_github_token():
+    env = {"GH_TOKEN": "a", "GITHUB_TOKEN": "b"}
+
+    assert env_token_variable(env) == "GH_TOKEN"
+
+
+def test_an_empty_token_is_no_token():
+    assert env_token_variable({"GITHUB_TOKEN": "   "}) is None
+    assert env_token_variable({}) is None
+
+
+def test_github_token_is_found_on_its_own():
+    assert env_token_variable({"GITHUB_TOKEN": "x"}) == "GITHUB_TOKEN"
+
+
+def test_a_codespace_is_recognised():
+    assert in_codespace({"CODESPACES": "true"})
+    assert not in_codespace({"CODESPACES": "false"})
+    assert not in_codespace({})
+
+
+def advice_for(**kwargs) -> Advice:
+    """``choose_advice`` with the arguments of an ordinary failing run."""
+    return choose_advice(
+        **{
+            "anything_skipped": True,
+            "in_actions": False,
+            "github_cli_missing": False,
+            "github_reached": True,
+            "course_config_read": True,
+            "course_config_fetched": True,
+            "env": {},
+            **kwargs,
+        }
+    )
+
+
+def test_nothing_skipped_needs_no_advice():
+    assert advice_for(anything_skipped=False) is Advice.NONE
+
+
+def test_a_missing_gh_outranks_everything():
+    """The workflow token snippet is useless where there is no gh to take it."""
+    assert (
+        advice_for(
+            github_cli_missing=True,
+            in_actions=True,
+            env={"GH_TOKEN": "x"},
+        )
+        is Advice.INSTALL_GH
+    )
+
+
+def test_actions_advice_is_unchanged():
+    assert advice_for(in_actions=True, github_reached=False) is Advice.ACTIONS_TOKEN
+
+
+def test_nothing_reached_github_without_a_token_advises_signing_in():
+    assert advice_for(github_reached=False) is Advice.SIGN_IN
+
+
+@pytest.mark.parametrize("variable", ["GH_TOKEN", "GITHUB_TOKEN"])
+def test_an_environment_token_is_never_told_to_sign_in(variable):
+    assert (
+        advice_for(github_reached=False, env={variable: "x"})
+        is Advice.ENV_TOKEN_REJECTED
+    )
+
+
+def test_a_codespace_that_cannot_read_the_course_config():
+    """The reported bug: signed in, reaching GitHub, config out of reach."""
+    assert (
+        advice_for(
+            course_config_read=False,
+            course_config_fetched=False,
+            env={"CODESPACES": "true", "GITHUB_TOKEN": "x"},
+        )
+        is Advice.CODESPACE_TOKEN_SCOPE
+    )
+
+
+def test_an_unreadable_course_config_outside_a_codespace():
+    assert (
+        advice_for(course_config_read=False, course_config_fetched=False)
+        is Advice.COURSE_CONFIG_UNREADABLE
+    )
+
+
+def test_a_malformed_course_config_is_not_blamed_on_a_codespace_token():
+    """It was read, so the token reached it; the file itself is the problem."""
+    assert (
+        advice_for(
+            course_config_read=False,
+            course_config_fetched=True,
+            env={"CODESPACES": "true", "GITHUB_TOKEN": "x"},
+        )
+        is Advice.COURSE_CONFIG_UNREADABLE
+    )
+
+
+def test_a_skip_that_is_not_about_access_says_so():
+    """A detached HEAD is not a reason to sign in again."""
+    assert advice_for() is Advice.SEE_REASONS
+
+
+def test_evaluate_reports_the_codespace_case_end_to_end():
+    report = report_for(
+        GOOD_FACTS,
+        course_config=None,
+        course_config_error="gh: Not Found (HTTP 404)",
+        course_config_fetched=False,
+        env={"CODESPACES": "true", "GITHUB_TOKEN": "x"},
+    )
+
+    assert report.advice is Advice.CODESPACE_TOKEN_SCOPE
+    assert report.token_variable == "GITHUB_TOKEN"
+    assert status_of(report, "faculty") is Status.SKIPPED
+
+
+def test_a_codespace_is_not_told_it_might_not_be_a_member():
+    """The old reason named two causes, neither of which applies here."""
+    report = report_for(
+        GOOD_FACTS,
+        course_config=None,
+        course_config_error="gh: Not Found (HTTP 404)",
+        course_config_fetched=False,
+        env={"CODESPACES": "true", "GITHUB_TOKEN": "x"},
+    )
+    reason = check_named(report, "faculty").detail
+
+    assert "can only see this repository" in reason
+    assert "not yet a member" not in reason
+
+
+def test_a_good_run_has_no_advice():
+    assert report_for(GOOD_FACTS).advice is Advice.NONE
+
+
+# --- gather_facts records how far gh got -------------------------------------
+
+
+def test_gather_facts_notes_that_github_answered(monkeypatch):
+    from gh_lab.commands.setup_check import command as command_module
+
+    monkeypatch.setattr(
+        command_module.github_cli,
+        "repo_view",
+        lambda: {"name": "csd110-lab-1", "owner": {"login": "student-user"}},
+    )
+    monkeypatch.setattr(
+        command_module.github_cli, "list_collaborators", lambda owner, name: ("x",)
+    )
+    monkeypatch.setattr(command_module.git, "current_branch", lambda: "lab-1")
+
+    facts = command_module.gather_facts(in_actions=False, env={})
+
+    assert facts.github_reached
+    assert not facts.github_cli_missing
+
+
+def test_gather_facts_notices_a_missing_gh(monkeypatch):
+    from gh_lab.commands.setup_check import command as command_module
+
+    def missing():
+        raise ToolNotFound("the GitHub CLI (gh) is not installed or not on PATH")
+
+    monkeypatch.setattr(command_module.github_cli, "repo_view", missing)
+    monkeypatch.setattr(command_module.git, "current_branch", lambda: "lab-1")
+
+    facts = command_module.gather_facts(in_actions=False, env={})
+
+    assert facts.github_cli_missing
+    assert not facts.github_reached
+    # The check still degrades to skipped rather than failing.
+    assert "repo" in facts.unavailable
+
+
+def test_gather_facts_does_not_call_a_refusal_a_missing_tool(monkeypatch):
+    from gh_lab.commands.setup_check import command as command_module
+
+    def refused():
+        raise AdapterError("gh: Not Found (HTTP 404)")
+
+    monkeypatch.setattr(command_module.github_cli, "repo_view", refused)
+    monkeypatch.setattr(command_module.git, "current_branch", lambda: "lab-1")
+
+    facts = command_module.gather_facts(in_actions=False, env={})
+
+    assert not facts.github_cli_missing
+
+
+# --- How the advice is rendered ----------------------------------------------
+
+
+def rendered(advice: Advice, token_variable: str | None = None) -> str:
+    """The whole report for a run carrying ``advice``, without colour."""
+    report = SetupCheckReport(
+        checks=(
+            Check(id="faculty", title="Faculty have access", status=Status.SKIPPED),
+        ),
+        lab="1",
+        advice=advice,
+        token_variable=token_variable,
+    )
+    return shell.render_report(report, shell.Painter(False), shell.SYMBOLS)
+
+
+def test_every_advice_has_wording():
+    """A new Advice member cannot be added without something to print."""
+    assert set(shell.ADVICE) == set(Advice) - {Advice.NONE}
+
+
+@pytest.mark.parametrize(
+    "advice",
+    [
+        Advice.INSTALL_GH,
+        Advice.ENV_TOKEN_REJECTED,
+        Advice.COURSE_CONFIG_UNREADABLE,
+        Advice.ACTIONS_TOKEN,
+        Advice.SEE_REASONS,
+    ],
+)
+def test_the_footer_never_offers_gh_auth_login_where_it_would_refuse(advice):
+    """The regression test for the bug as reported."""
+    assert "gh auth login" not in rendered(advice)
+
+
+def test_a_codespace_is_told_to_clear_the_token_before_signing_in():
+    output = rendered(Advice.CODESPACE_TOKEN_SCOPE, "GITHUB_TOKEN")
+
+    # gh auth login is offered, but never without the unset that makes it work.
+    assert "unset GH_TOKEN GITHUB_TOKEN" in output
+    assert output.index("unset GH_TOKEN GITHUB_TOKEN") < output.index("gh auth login")
+
+
+def test_the_advice_names_the_variable_actually_set():
+    """Sending someone after the variable they did not set wastes their time."""
+    # Asserted by absence of the other name, because wrapping may split either.
+    assert "GITHUB_TOKEN" not in rendered(Advice.ENV_TOKEN_REJECTED, "GH_TOKEN")
+    assert "GITHUB_TOKEN" in rendered(Advice.ENV_TOKEN_REJECTED, "GITHUB_TOKEN")
+
+
+def test_sign_in_advice_still_offers_gh_auth_login():
+    assert "gh auth login" in rendered(Advice.SIGN_IN)
+
+
+def test_the_actions_snippet_survives_rendering():
+    """Its braces must not be eaten by the token interpolation."""
+    assert "GH_TOKEN: ${{ github.token }}" in rendered(Advice.ACTIONS_TOKEN)
+
+
+def test_no_advice_is_printed_when_nothing_was_skipped():
+    report = SetupCheckReport(
+        checks=(
+            Check(id="private", title="Repository is private", status=Status.PASS),
+        ),
+        lab="1",
+    )
+    output = shell.render_report(report, shell.Painter(False), shell.SYMBOLS)
+
+    assert "Look for 'not checked'" not in output
+
+
+def test_json_reports_the_advice():
+    report = SetupCheckReport(lab="1", advice=Advice.CODESPACE_TOKEN_SCOPE)
+
+    assert json.loads(shell.report_to_json(report))["advice"] == "codespace-token-scope"

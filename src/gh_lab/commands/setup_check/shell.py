@@ -30,6 +30,7 @@ from gh_lab.colour import (
     use_colour,
 )
 from gh_lab.commands.setup_check.command import (
+    Advice,
     Check,
     SetupCheckReport,
     Status,
@@ -157,6 +158,138 @@ def render_check(
     return "\n".join(lines)
 
 
+@dataclasses.dataclass(frozen=True)
+class AdviceText:
+    """What to print about the checks that could not run.
+
+    Attributes:
+        body: The explanation, wrapped when rendered. ``{token}`` is replaced
+            with whichever variable is supplying gh's token.
+        lines: Verbatim lines to copy — commands, or a snippet of YAML. Never
+            wrapped, and never formatted, so a ``${{ }}`` survives intact.
+        note: A caveat worth reading before acting on ``lines``.
+    """
+
+    body: str
+    lines: tuple[str, ...] = ()
+    note: str = ""
+
+
+# One entry per Advice except NONE, which prints nothing. Keeping the wording
+# here and the choice in the command layer means either can change alone.
+ADVICE: dict[Advice, AdviceText] = {
+    Advice.INSTALL_GH: AdviceText(
+        body=(
+            "Look for 'not checked' above. Those checks ask GitHub through the "
+            "GitHub CLI (gh), which is not installed or not on PATH here. "
+            "Install it from https://cli.github.com, then run this again."
+        ),
+    ),
+    Advice.SIGN_IN: AdviceText(
+        body=(
+            "Look for 'not checked' above. Nothing could be read from GitHub, "
+            "and this environment provides no token, so the GitHub CLI is most "
+            "likely not signed in. To sign in, run:"
+        ),
+        lines=("gh auth login",),
+        note=(
+            "If that says you are already signed in, the reason printed under "
+            "each check above is the real problem — most often no network "
+            "connection."
+        ),
+    ),
+    Advice.ENV_TOKEN_REJECTED: AdviceText(
+        body=(
+            "Look for 'not checked' above. Nothing could be read from GitHub, "
+            "even though this environment supplies a token in {token} and the "
+            "GitHub CLI is already using it. Signing in again is not the fix: "
+            "the GitHub CLI refuses to store new credentials while {token} is "
+            "set. Check your network connection, and show your instructor "
+            "what the checks above say if it keeps happening."
+        ),
+        lines=("gh auth status",),
+        note=(
+            "That prints which token the GitHub CLI is using and what it is "
+            "allowed to do."
+        ),
+    ),
+    Advice.COURSE_CONFIG_UNREADABLE: AdviceText(
+        body=(
+            "Look for 'not checked' above. You are signed in — the other "
+            "checks reached GitHub — but your course's configuration could not "
+            "be used, so signing in again would change nothing. The reason "
+            "under that check says what went wrong."
+        ),
+        note=(
+            "If you have been invited to the course organization and have not "
+            "accepted yet, accept it at https://github.com/settings/organizations "
+            "and run this check again."
+        ),
+    ),
+    Advice.CODESPACE_TOKEN_SCOPE: AdviceText(
+        body=(
+            "Look for 'not checked' above. You are signed in — the other "
+            "checks reached GitHub — but a Codespace is given a token that can "
+            "only see the repository it belongs to, so it cannot read your "
+            "course's configuration in another organization. Everything else "
+            "was checked, and this is nothing you have done wrong: tell your "
+            "instructor, because a course whose faculty list is public does "
+            "not have this problem. To run that last check now, sign in as "
+            "yourself — clearing {token} first, because the GitHub CLI will "
+            "not store new credentials while it is set:"
+        ),
+        lines=("unset GH_TOKEN GITHUB_TOKEN", "gh auth login"),
+        note=(
+            "Those two lines sign the GitHub CLI in as you for this terminal "
+            "only; a new terminal will use the Codespace token again. Running "
+            "this check from a clone on your own machine works too."
+        ),
+    ),
+    Advice.ACTIONS_TOKEN: AdviceText(
+        # Inside a workflow there is nobody to sign in; the token is passed
+        # through the environment instead.
+        body=(
+            "Look for 'not checked' above. Checks that ask GitHub need a "
+            "token, which a workflow provides like this:"
+        ),
+        lines=("env:", "  GH_TOKEN: ${{ github.token }}"),
+    ),
+    Advice.SEE_REASONS: AdviceText(
+        body=(
+            "Look for 'not checked' above — each one says why it could not "
+            "run. None of them needs you to sign in again."
+        ),
+    ),
+}
+
+
+def render_advice(
+    advice: AdviceText,
+    token_variable: str | None,
+    paint: Painter,
+) -> list[str]:
+    """Render the closing advice as report sections."""
+    # Only a token-specific message interpolates, and one is only ever chosen
+    # when a variable was found; name the usual one if that ever changes.
+    token = token_variable or "GITHUB_TOKEN"
+
+    sections = textwrap.wrap(advice.body.format(token=token), width=WRAP_WIDTH)
+
+    if advice.lines:
+        sections.append("")
+        # Never wrapped, so they stay copy-pasteable.
+        sections += ["    " + paint(line, CYAN) for line in advice.lines]
+
+    if advice.note:
+        sections.append("")
+        sections += [
+            paint(line, DIM)
+            for line in textwrap.wrap(advice.note.format(token=token), width=WRAP_WIDTH)
+        ]
+
+    return sections
+
+
 def render_report(
     report: SetupCheckReport,
     paint: Painter,
@@ -201,24 +334,10 @@ def render_report(
     else:
         sections.append(paint("Everything looks good.", GREEN, BOLD))
 
-    if skipped:
-        if report.faculty_skipped_in_actions:
-            # Inside a workflow there is nobody to sign in; the token is passed
-            # through the environment instead.
-            sections.append(
-                "Look for 'not checked' above. Checks that ask GitHub need a token, "
-                "which a workflow provides like this:"
-            )
-            sections.append("")
-            sections.append("    " + paint("env:", CYAN))
-            sections.append("    " + paint("  GH_TOKEN: ${{ github.token }}", CYAN))
-        else:
-            sections.append(
-                "Look for 'not checked' above. Most checks need the GitHub CLI, so if "
-                "you are not signed in yet, run:"
-            )
-            sections.append("")
-            sections.append("    " + paint("gh auth login", CYAN))
+    advice = ADVICE.get(report.advice)
+    if advice:
+        sections.append("")
+        sections += render_advice(advice, report.token_variable, paint)
 
     if report.faculty_skipped_in_actions:
         sections.append(
@@ -237,6 +356,9 @@ def report_to_json(report: SetupCheckReport) -> str:
         {
             "lab": report.lab,
             "ok": report.ok,
+            # The key, not the rendered sentence: exporting the prose would
+            # freeze the wording into a machine contract.
+            "advice": str(report.advice),
             "facultySkippedInActions": report.faculty_skipped_in_actions,
             "checks": [
                 {**dataclasses.asdict(check), "status": str(check.status)}

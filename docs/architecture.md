@@ -116,7 +116,11 @@ Commands may use Git (`git`) and the GitHub CLI (`gh`) where it provides a strai
 
 Interactions with such external should be isolated from core decision-making logic where practical so that behaviour can be tested without requiring direct access. These interactions should be implemented behind adapters in the `adapters` package, which can be mocked or stubbed in tests.
 
-**Reach GitHub through `gh`, not over plain HTTP.** `gh` already carries the authentication the environment provides — from the host in a devcontainer, from the platform in a Codespace — so reading a private resource needs nothing of the user. A direct HTTP request would work only for public data and would need a token supplied from somewhere for anything else. An earlier `http` adapter was removed for this reason when the course configuration moved into a private repository.
+**Reach GitHub through `gh`, not over plain HTTP.** `gh` already carries the authentication the environment provides — from the host in a devcontainer, from the platform in a Codespace or a workflow — so reading a private resource needs nothing of the user. A direct HTTP request would work only for public data and would need a token supplied from somewhere for anything else. An earlier `http` adapter was removed for this reason when the course configuration moved into a private repository.
+
+What that authentication can *see*, however, varies, and a command must not assume otherwise. A Codespace or workflow token is scoped to its own repository, so a private repository in another organization is out of reach there even though the caller is plainly signed in. A command must therefore treat a failed read as a fact to report rather than a cause to guess at, and distinguish "could not reach GitHub", "reached GitHub and was refused" and "the tool is not installed" — which is why `ToolNotFound` is a distinct adapter error rather than a message to match on.
+
+The design response is to need less, rather than to ask the user for more. Anything a student's command must read in every environment is kept publicly readable, so that the weakest token any environment provides is enough: this is why the faculty list is split from the student roster, and `course_config.private_counterpart` derives the second location from the first rather than taking a second setting. Asking a student to arrange credentials is the option of last resort, because it is the step most likely to stop them.
 
 ## Design principles
 
