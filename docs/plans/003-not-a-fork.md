@@ -103,20 +103,20 @@ courses whose organizations may not be locked down.
    the `template_repo` derivation.
 2. [ ] Drop `template_repo` from `LabConfig` and stop reading `template-repo` in
    `parse_lab_config`.
-3. [ ] Swap `templateRepository` for `isFork` in `REPO_FIELDS`, and
+3. [+] Swap `templateRepository` for `isFork` in `REPO_FIELDS`, and
    `template_repo` for `is_fork` on `RepoFacts` and in `gather_facts`.
-4. [ ] Replace `_check_template` with `_check_fork`: pass when the repository is
+4. [+] Replace `_check_template` with `_check_fork`: pass when the repository is
    not a fork, fail when it is, skip when the repository could not be read.
 5. [ ] Reword the `not-course-org` remediation and its skip reason, both of
    which name `template-repo` today.
 6. [ ] Remove `normalise_repo_ref` if tasks 1–5 leave it unused, checking the
    invite commands and the tests before deleting it.
-7. [ ] Update `tests/commands/test_setup_check.py`: drop the template cases,
+7. [+] Update `tests/commands/test_setup_check.py`: drop the template cases,
    including the one at line 157 that asserts the defect.
 8. [ ] Update `tests/commands/test_setup_check_config.py`: drop `template-repo`
    from the fixture and the required-field list, and re-point the two
    `course_org` tests at the course configuration owner.
-9. [ ] Add tests for a fork failing, a non-fork passing, and an unreadable
+9. [+] Add tests for a fork failing, a non-fork passing, and an unreadable
    repository skipping.
 10. [ ] Update `docs/configuration.md` — the field table, the example, the
     course-organization derivation, and the `setup-check` table — and the

@@ -9,7 +9,7 @@ from gh_lab.adapters import AdapterError, ToolNotFound
 
 TIMEOUT_SECONDS = 30
 
-REPO_FIELDS = ("name", "owner", "isPrivate", "templateRepository")
+REPO_FIELDS = ("name", "owner", "isPrivate", "isFork")
 
 # Course configuration changes rarely, and this is fetched on every invocation.
 FILE_CACHE_DURATION = "1h"
@@ -88,8 +88,8 @@ def _api_args(
 def repo_view() -> dict[str, Any]:
     """Return metadata about the repository in the current directory.
 
-    A single call supplies the repository name, owner, visibility, and the
-    template it was generated from.
+    A single call supplies the repository name, owner, visibility, and whether
+    it is a fork.
     """
     result = _run_json(["repo", "view", "--json", ",".join(REPO_FIELDS)])
 

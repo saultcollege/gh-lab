@@ -122,7 +122,7 @@ class RepoFacts:
     name: str | None = None
     owner: str | None = None
     is_private: bool | None = None
-    template_repo: str | None = None
+    is_fork: bool | None = None
     collaborators: tuple[str, ...] | None = None
     current_branch: str | None = None
     unavailable: Mapping[str, str] = field(default_factory=dict)
@@ -287,51 +287,39 @@ def _check_branch(lab: str, lab_config: LabConfig, facts: RepoFacts) -> Check:
     )
 
 
-def _check_template(lab_config: LabConfig, facts: RepoFacts) -> Check:
-    title = "Created from the lab template"
-    expected = normalise_repo_ref(lab_config.template_repo)
+def _check_fork(facts: RepoFacts) -> Check:
+    """Check that the repository stands on its own.
 
-    if "repo" in facts.unavailable:
-        return _skipped("template", title, facts.unavailable["repo"])
+    Whether a repository is a fork is the one thing about how it came to exist
+    that can be read from the repository itself. Which template it was generated
+    from cannot: GitHub returns that as a repository object rather than a name,
+    so a token that may not see the template — a Codespace's, for one — is told
+    only that there is nothing there.
+    """
+    title = "Repository is not a fork"
 
-    if expected is None:
-        return _skipped(
-            "template",
-            title,
-            f"{LAB_CONFIG_PATH} does not name a valid template repository",
-        )
+    if facts.is_fork is None:
+        return _skipped("fork", title, facts.unavailable.get("repo", "unknown"))
 
-    if facts.template_repo == expected:
-        return Check(id="template", title=title, status=Status.PASS, detail=expected)
-
-    if facts.template_repo is None:
-        detail = "Your repository was not created from a template."
-    else:
-        detail = (
-            f"Your repository was created from '{facts.template_repo}', "
-            f"but this lab expects '{expected}'."
-        )
+    if not facts.is_fork:
+        return Check(id="fork", title=title, status=Status.PASS)
 
     return Check(
-        id="template",
+        id="fork",
         title=title,
         status=Status.FAIL,
-        detail=detail,
+        detail="Your repository is a fork.",
         explanation=(
-            "Lab repositories must be created using the 'Use this template' button on "
-            "the template repository, so that they start with the right files and "
-            "settings. Downloading, copying, or forking the files is not the same thing."
-        ),
-        commands=(
-            (
-                f"gh repo create {lab_config.repo_name} --private "
-                f"--template {expected} --clone"
-            ),
+            "A fork stays tied to the repository it was made from. It can inherit "
+            "that repository's access, so your work may be visible to the rest of "
+            "the class, and a pull request from it is aimed at that repository "
+            "rather than your own, so submitting a lab would send your work to the "
+            "wrong place."
         ),
         note=(
-            "That command makes a fresh repository from the template. If you have "
-            "already done work in this one, ask your instructor for help moving it "
-            "across before you delete anything."
+            "A fork cannot be turned into an ordinary repository from the command "
+            "line. Make a new repository from your lab template and move your work "
+            "into it — ask your instructor to help before you delete anything."
         ),
     )
 
@@ -562,7 +550,7 @@ def evaluate(
     checks = [
         _check_repo_name(lab_config, facts),
         _check_branch(lab, lab_config, facts),
-        _check_template(lab_config, facts),
+        _check_fork(facts),
         _check_private(facts),
     ]
 
@@ -687,7 +675,7 @@ def gather_facts(*, in_actions: bool, env: Mapping[str, str]) -> RepoFacts:
 
     name = owner = None
     is_private = None
-    template_repo = None
+    is_fork = None
     github_reached = False
     github_cli_missing = False
 
@@ -698,7 +686,7 @@ def gather_facts(*, in_actions: bool, env: Mapping[str, str]) -> RepoFacts:
         owner_field = repo.get("owner")
         owner = owner_field.get("login") if isinstance(owner_field, dict) else None
         is_private = repo.get("isPrivate")
-        template_repo = normalise_repo_ref(repo.get("templateRepository"))
+        is_fork = repo.get("isFork")
     except AdapterError as error:
         github_cli_missing = isinstance(error, ToolNotFound)
         unavailable["repo"] = f"could not ask GitHub about this repository ({error})"
@@ -727,7 +715,7 @@ def gather_facts(*, in_actions: bool, env: Mapping[str, str]) -> RepoFacts:
         name=name,
         owner=owner,
         is_private=is_private,
-        template_repo=template_repo,
+        is_fork=is_fork,
         collaborators=collaborators,
         current_branch=current_branch,
         unavailable=unavailable,

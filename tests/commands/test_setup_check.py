@@ -27,7 +27,6 @@ from gh_lab.commands.setup_check.config import LabConfig
 from gh_lab.course_config import CourseConfig, CourseConfigRef, Person
 
 TEMPLATE_URL = "https://github.com/saultcollege-csd110/lab-1-template"
-TEMPLATE_REF = "saultcollege-csd110/lab-1-template"
 
 CONFIG_REF = CourseConfigRef("saultcollege-csd110", "course-config", "26f.json")
 
@@ -43,7 +42,7 @@ GOOD_FACTS = RepoFacts(
     name="csd110-lab-1",
     owner="student-user",
     is_private=True,
-    template_repo=TEMPLATE_REF,
+    is_fork=False,
     collaborators=("student-user", "bobber24"),
     current_branch="lab-1",
     # These facts describe a run in which GitHub answered, so say so; the
@@ -154,14 +153,9 @@ def test_everything_passes_for_a_correct_setup():
             "'main'",
         ),
         (
-            "template",
-            {"template_repo": None},
-            "not created from a template",
-        ),
-        (
-            "template",
-            {"template_repo": "someone-else/other-template"},
-            "someone-else/other-template",
+            "fork",
+            {"is_fork": True},
+            "is a fork",
         ),
         (
             "private",
@@ -189,8 +183,12 @@ def test_each_check_can_fail(check_id, facts, expected_in_detail):
     assert not report.ok
 
 
-def test_every_failure_explains_itself_and_says_what_to_run():
-    """A student must be able to act on a failure without asking for help."""
+def test_every_failure_explains_itself_and_says_what_to_do():
+    """A student must be able to act on a failure without asking for help.
+
+    A command where there is one, and otherwise a note: a fork cannot be undone
+    from the command line, so there is nothing to print for it that would work.
+    """
     broken = dataclasses.replace(
         GOOD_FACTS,
         name="wrong",
@@ -198,7 +196,7 @@ def test_every_failure_explains_itself_and_says_what_to_run():
         is_private=False,
         collaborators=(),
         owner="saultcollege-csd110",
-        template_repo=None,
+        is_fork=True,
     )
 
     report = report_for(broken)
@@ -206,7 +204,7 @@ def test_every_failure_explains_itself_and_says_what_to_run():
     for check in report.failures:
         assert check.detail, f"{check.id} does not say what was found"
         assert check.explanation, f"{check.id} does not say why it matters"
-        assert check.commands, f"{check.id} does not say what to run"
+        assert check.commands or check.note, f"{check.id} does not say what to do"
 
 
 def test_branch_name_follows_the_configured_pattern():
@@ -254,8 +252,36 @@ def test_unavailable_information_skips_rather_than_fails():
     assert status_of(report, "repo-name") is Status.SKIPPED
     assert status_of(report, "private") is Status.SKIPPED
     assert status_of(report, "faculty") is Status.SKIPPED
+    assert status_of(report, "fork") is Status.SKIPPED
     # A skipped check is not a failure.
     assert report.ok
+
+
+def test_the_fork_check_is_skipped_only_when_the_repository_is_unreadable():
+    """Its one input comes from the same call as the name and the visibility.
+
+    So there is no case where it alone cannot be answered, and the reason it
+    gives is the one already recorded for that call.
+    """
+    facts = dataclasses.replace(
+        GOOD_FACTS, is_fork=None, unavailable={"repo": "could not ask GitHub"}
+    )
+
+    check = check_named(report_for(facts), "fork")
+
+    assert check.status is Status.SKIPPED
+    assert "could not ask GitHub" in check.detail
+
+
+def test_a_fork_says_what_to_do_without_offering_a_command():
+    """There is no command that leaves a fork network, so none is printed."""
+    check = check_named(
+        report_for(dataclasses.replace(GOOD_FACTS, is_fork=True)), "fork"
+    )
+
+    assert check.status is Status.FAIL
+    assert check.commands == ()
+    assert "ask your instructor" in check.note
 
 
 def test_an_unreadable_course_config_costs_only_the_faculty_check():
@@ -272,7 +298,7 @@ def test_an_unreadable_course_config_costs_only_the_faculty_check():
     # It cannot tell "not a member yet" from "moved", so it must name both.
     assert "member of the course organization" in faculty.detail
 
-    for check_id in ("repo-name", "branch", "template", "private", "not-course-org"):
+    for check_id in ("repo-name", "branch", "fork", "private", "not-course-org"):
         assert status_of(report, check_id) is Status.PASS
 
     assert report.ok
@@ -285,7 +311,7 @@ def test_faculty_check_is_omitted_entirely_in_github_actions():
     assert [check.id for check in report.checks] == [
         "repo-name",
         "branch",
-        "template",
+        "fork",
         "private",
         "not-course-org",
     ]
