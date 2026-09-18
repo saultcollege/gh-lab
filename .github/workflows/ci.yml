@@ -75,6 +75,10 @@ jobs:
             echo "help output did not list setup-check" >&2
             exit 1
           fi
+          if ! printf '%s\n' "$output" | grep -q 'admin'; then
+            echo "help output did not list the admin group" >&2
+            exit 1
+          fi
 
       - name: gh lab --version
         run: |
@@ -142,6 +146,107 @@ jobs:
           # report and never depends on what gh can see.
           if [ "$status" -ne 1 ]; then
             echo "expected exit status 1, got $status" >&2
+            exit 1
+          fi
+
+      - name: A command group on its own is a usage error
+        run: |
+          for argv in "admin" "admin invites"; do
+            set +e
+            output=$(gh lab $argv 2>&1)
+            status=$?
+            set -e
+            printf '%s\n' "$output"
+            if [ "$status" -ne 2 ]; then
+              echo "expected exit status 2 for 'gh lab $argv', got $status" >&2
+              exit 1
+            fi
+            if ! printf '%s\n' "$output" | grep -q 'usage: gh lab'; then
+              echo "expected usage for 'gh lab $argv'" >&2
+              exit 1
+            fi
+          done
+
+      - name: admin invites send requires a course configuration
+        run: |
+          set +e
+          output=$(gh lab admin invites send 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 2 ]; then
+            echo "expected exit status 2, got $status" >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$output" | grep -q -- '--config-file'; then
+            echo "expected the message to name the missing option" >&2
+            exit 1
+          fi
+
+      # --config-file names a file in a repository, never a local path, so there
+      # is no throwaway file to write here. A reference that cannot resolve is
+      # what CI can assert without depending on a real course.
+      - name: admin invites send rejects a reference it cannot use
+        run: |
+          set +e
+          output=$(gh lab admin invites send --dry-run --config-file not-a-reference 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if printf '%s\n' "$output" | grep -q 'Traceback'; then
+            echo "send raised an unhandled exception" >&2
+            exit 1
+          fi
+          if [ "$status" -ne 2 ]; then
+            echo "expected exit status 2, got $status" >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$output" | grep -q -- '--config-file'; then
+            echo "expected the message to name what has to be fixed" >&2
+            exit 1
+          fi
+
+      # example-org/course-config does not exist, which is what the setup-check
+      # step above already relies on. A dry run still reads the configuration,
+      # so this covers the fetch and its failure, not just argument parsing.
+      - name: admin invites send reports an unreachable configuration cleanly
+        run: |
+          set +e
+          output=$(gh lab admin invites send --dry-run --config-file example-org/course-config/26f.json 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if printf '%s\n' "$output" | grep -q 'Traceback'; then
+            echo "send raised an unhandled exception" >&2
+            exit 1
+          fi
+          if [ "$status" -ne 2 ]; then
+            echo "expected exit status 2, got $status" >&2
+            exit 1
+          fi
+
+      # The property worth guarding is that it does not block: a prompt nobody
+      # can answer would hang the job rather than fail it, so this is run under
+      # a timeout with stdin closed. Whether anything is pending depends on the
+      # token, so 0 (nothing waiting) and 2 (waiting, but no terminal) are both
+      # correct; 124 means it blocked.
+      - name: admin invites accept does not block without a terminal
+        run: |
+          set +e
+          output=$(timeout 60 gh lab admin invites accept < /dev/null 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -eq 124 ]; then
+            echo "accept blocked waiting for input that cannot arrive" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$output" | grep -q 'Traceback'; then
+            echo "accept raised an unhandled exception" >&2
+            exit 1
+          fi
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "expected exit status 0 or 2, got $status" >&2
             exit 1
           fi
 

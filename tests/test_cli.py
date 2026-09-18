@@ -89,3 +89,81 @@ def test_shim_minimum_python_matches_requires_python(pyproject):
     shim_floor = f">={major.group(1)}.{minor.group(1)}"
 
     assert shim_floor == pyproject["project"]["requires-python"]
+
+
+# --- nested command groups -------------------------------------------------
+
+
+def test_help_lists_the_admin_group(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+
+    assert exc_info.value.code == 0
+    assert "admin" in capsys.readouterr().out
+
+
+def test_admin_help_lists_its_groups(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["admin", "--help"])
+
+    assert exc_info.value.code == 0
+    assert "invites" in capsys.readouterr().out
+
+
+def test_admin_invites_help_lists_its_verbs(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["admin", "invites", "--help"])
+
+    assert exc_info.value.code == 0
+
+    out = capsys.readouterr().out
+    assert "send" in out
+    assert "accept" in out
+
+
+def test_bare_admin_exits_two_with_usage(capsys):
+    """A group is not a command, so naming one alone is a usage error."""
+    with pytest.raises(SystemExit) as exc_info:
+        main(["admin"])
+
+    assert exc_info.value.code == 2
+    assert "usage:" in capsys.readouterr().err
+
+
+def test_bare_admin_invites_exits_two_with_usage(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["admin", "invites"])
+
+    assert exc_info.value.code == 2
+    assert "usage:" in capsys.readouterr().err
+
+
+def test_unknown_admin_group_exits_two():
+    with pytest.raises(SystemExit) as exc_info:
+        main(["admin", "not-a-group"])
+
+    assert exc_info.value.code == 2
+
+
+def test_unknown_invites_verb_exits_two():
+    with pytest.raises(SystemExit) as exc_info:
+        main(["admin", "invites", "not-a-verb"])
+
+    assert exc_info.value.code == 2
+
+
+def test_a_nested_verb_dispatches_through_its_handler(monkeypatch):
+    """Dispatch is by the handler default, unchanged by the extra nesting."""
+    from gh_lab.commands.admin_invites import shell as admin_invites_shell
+
+    seen = []
+    monkeypatch.setattr(
+        admin_invites_shell,
+        "handle_send",
+        lambda args: (seen.append(args), 0)[1],
+    )
+
+    argv = ["admin", "invites", "send", "--config-file", "org/course-config/26f.json"]
+
+    assert main(argv) == 0
+    assert len(seen) == 1

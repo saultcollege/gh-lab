@@ -11,15 +11,10 @@ from gh_lab.commands.setup_check.command import (
     RepoFacts,
     Status,
     evaluate,
-    normalise_repo_ref,
     resolve_branch,
 )
-from gh_lab.commands.setup_check.config import (
-    CourseConfig,
-    CourseConfigRef,
-    Faculty,
-    LabConfig,
-)
+from gh_lab.commands.setup_check.config import LabConfig
+from gh_lab.course_config import CourseConfig, CourseConfigRef, Person
 
 TEMPLATE_URL = "https://github.com/saultcollege-csd110/lab-1-template"
 TEMPLATE_REF = "saultcollege-csd110/lab-1-template"
@@ -32,7 +27,7 @@ LAB_CONFIG = LabConfig(
     course_config=CONFIG_REF,
 )
 
-COURSE_CONFIG = CourseConfig(faculty=(Faculty(github="bobber24", name="Bob Bob"),))
+COURSE_CONFIG = CourseConfig(faculty=(Person(github="bobber24", name="Bob Bob"),))
 
 GOOD_FACTS = RepoFacts(
     name="csd110-lab-1",
@@ -219,8 +214,8 @@ def test_faculty_matching_ignores_case():
 def test_multiple_missing_faculty_each_get_a_command():
     course = CourseConfig(
         faculty=(
-            Faculty(github="bobber24", name="Bob Bob"),
-            Faculty(github="alice99"),
+            Person(github="bobber24", name="Bob Bob"),
+            Person(github="alice99"),
         ),
     )
 
@@ -310,30 +305,6 @@ def test_resolve_branch_uses_ref_name_on_a_push():
     }
 
     assert resolve_branch(env, None) == "lab-1"
-
-
-# --- Repository reference normalisation ------------------------------------
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        TEMPLATE_URL,
-        TEMPLATE_URL + "/",
-        TEMPLATE_URL + ".git",
-        "saultcollege-csd110/lab-1-template",
-        "SaultCollege-CSD110/Lab-1-Template",
-        "git@github.com:saultcollege-csd110/lab-1-template.git",
-        {"name": "lab-1-template", "owner": {"login": "saultcollege-csd110"}},
-    ],
-)
-def test_normalise_repo_ref_accepts_every_form(value):
-    assert normalise_repo_ref(value) == TEMPLATE_REF
-
-
-@pytest.mark.parametrize("value", [None, "", "   ", "just-a-name", {}, 42])
-def test_normalise_repo_ref_rejects_non_repositories(value):
-    assert normalise_repo_ref(value) is None
 
 
 def test_course_config_is_not_fetched_inside_actions(monkeypatch):

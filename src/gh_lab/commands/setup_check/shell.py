@@ -19,13 +19,23 @@ import textwrap
 from collections.abc import Mapping
 from typing import TextIO
 
+from gh_lab.colour import (
+    BOLD,
+    CYAN,
+    DIM,
+    GREEN,
+    RED,
+    YELLOW,
+    Painter,
+    use_colour,
+)
 from gh_lab.commands.setup_check.command import (
     Check,
     SetupCheckReport,
     Status,
     run,
 )
-from gh_lab.commands.setup_check.config import ConfigError
+from gh_lab.course_config import ConfigError
 
 LAB_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -35,14 +45,6 @@ INDENT = "     "
 # Symbols, with plain replacements for terminals that cannot encode them.
 SYMBOLS = {Status.PASS: "✓", Status.FAIL: "✗", Status.SKIPPED: "–"}
 ASCII_SYMBOLS = {Status.PASS: "[OK]", Status.FAIL: "[X]", Status.SKIPPED: "[-]"}
-
-RESET = "\033[0m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-GREEN = "\033[32m"
-RED = "\033[31m"
-YELLOW = "\033[33m"
-CYAN = "\033[36m"
 
 STATUS_COLOURS = {Status.PASS: GREEN, Status.FAIL: RED, Status.SKIPPED: YELLOW}
 
@@ -83,34 +85,6 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(handler=handle)
 
 
-def use_colour(
-    setting: str,
-    stream: TextIO,
-    env: Mapping[str, str],
-) -> bool:
-    """Decide whether to emit ANSI colour.
-
-    GitHub Actions renders ANSI colour in its logs even though the log is not a
-    terminal, so it is treated as colour-capable.
-    """
-    if setting == "never":
-        return False
-
-    if setting == "always":
-        return True
-
-    if env.get("NO_COLOR"):
-        return False
-
-    if env.get("GITHUB_ACTIONS") == "true":
-        return True
-
-    if env.get("TERM") == "dumb":
-        return False
-
-    return bool(getattr(stream, "isatty", lambda: False)())
-
-
 def symbols_for(stream: TextIO) -> dict[Status, str]:
     """Return check symbols the stream can actually encode."""
     encoding = getattr(stream, "encoding", None) or "ascii"
@@ -123,19 +97,6 @@ def symbols_for(stream: TextIO) -> dict[Status, str]:
     return SYMBOLS
 
 
-class _Painter:
-    """Applies ANSI styles, or not."""
-
-    def __init__(self, enabled: bool) -> None:
-        self.enabled = enabled
-
-    def __call__(self, text: str, *styles: str) -> str:
-        if not self.enabled or not styles:
-            return text
-
-        return f"{''.join(styles)}{text}{RESET}"
-
-
 def _wrap(text: str) -> list[str]:
     """Wrap prose to the indented body width."""
     return textwrap.wrap(text, width=WRAP_WIDTH - len(INDENT)) or [""]
@@ -143,7 +104,7 @@ def _wrap(text: str) -> list[str]:
 
 def render_check(
     check: Check,
-    paint: _Painter,
+    paint: Painter,
     symbols: Mapping[Status, str],
     *,
     repeat_reason: bool = True,
@@ -198,7 +159,7 @@ def render_check(
 
 def render_report(
     report: SetupCheckReport,
-    paint: _Painter,
+    paint: Painter,
     symbols: Mapping[Status, str],
 ) -> str:
     """Render the whole report as human-readable text."""
@@ -318,7 +279,7 @@ def handle(args: argparse.Namespace) -> int:
         print(report_to_json(report))
         return 0 if report.ok else 1
 
-    paint = _Painter(use_colour(args.color, sys.stdout, os.environ))
+    paint = Painter(use_colour(args.color, sys.stdout, os.environ))
     print(render_report(report, paint, symbols_for(sys.stdout)))
 
     if os.environ.get("GITHUB_ACTIONS") == "true":
