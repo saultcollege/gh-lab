@@ -6,7 +6,6 @@ from gh_lab.course_config import (
     ConfigError,
     CourseConfigRef,
     Person,
-    normalise_repo_ref,
     parse_course_config,
     parse_course_config_ref,
     parse_roster,
@@ -21,34 +20,6 @@ SOURCE = "org/course-config/26f.json"
 REF_SOURCE = ".lab/config.json"
 
 COURSE_CONFIG = {"faculty": [{"name": "Bob Bob", "github": "bobber24"}]}
-
-TEMPLATE_URL = "https://github.com/saultcollege-csd110/lab-1-template"
-TEMPLATE_REF = "saultcollege-csd110/lab-1-template"
-
-
-# --- Repository reference normalisation ------------------------------------
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        TEMPLATE_URL,
-        TEMPLATE_URL + "/",
-        TEMPLATE_URL + ".git",
-        "saultcollege-csd110/lab-1-template",
-        "SaultCollege-CSD110/Lab-1-Template",
-        "git@github.com:saultcollege-csd110/lab-1-template.git",
-        {"name": "lab-1-template", "owner": {"login": "saultcollege-csd110"}},
-    ],
-)
-def test_normalise_repo_ref_accepts_every_form(value):
-    assert normalise_repo_ref(value) == TEMPLATE_REF
-
-
-@pytest.mark.parametrize("value", [None, "", "   ", "just-a-name", {}, 42])
-def test_normalise_repo_ref_rejects_non_repositories(value):
-    assert normalise_repo_ref(value) is None
-
 
 # --- locating the course config --------------------------------------------
 

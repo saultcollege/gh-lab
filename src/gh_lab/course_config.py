@@ -47,56 +47,6 @@ def optional_string(data: dict[str, Any], key: str, source: str) -> str | None:
     return value.strip()
 
 
-def normalise_repo_ref(value: Any) -> str | None:
-    """Reduce a repository reference to a lowercase ``owner/name``.
-
-    Accepts the URL form used in ``.lab/config.json``
-    (``https://github.com/org/repo``, with or without ``.git``), the
-    ``owner/name`` shorthand, and the object returned by
-    ``gh repo view --json templateRepository``.
-
-    Returns:
-        The normalised reference, or ``None`` if ``value`` does not identify a
-        repository.
-    """
-    if isinstance(value, dict):
-        owner = value.get("owner")
-        if isinstance(owner, dict):
-            owner = owner.get("login")
-        name = value.get("name")
-
-        if isinstance(owner, str) and isinstance(name, str) and owner and name:
-            return f"{owner}/{name}".casefold()
-
-        return None
-
-    if not isinstance(value, str):
-        return None
-
-    text = value.strip().rstrip("/")
-    if not text:
-        return None
-
-    # Strip any scheme and host, leaving the path.
-    for separator in ("://", "@"):
-        if separator in text:
-            text = text.split(separator, 1)[1]
-
-    text = text.replace(":", "/")
-
-    if text.casefold().startswith(f"{GITHUB_HOST}/"):
-        text = text[len(GITHUB_HOST) + 1 :]
-
-    if text.casefold().endswith(".git"):
-        text = text[: -len(".git")]
-
-    parts = [part for part in text.split("/") if part]
-    if len(parts) < 2:
-        return None
-
-    return f"{parts[-2]}/{parts[-1]}".casefold()
-
-
 @dataclass(frozen=True)
 class Person:
     """Someone named in the course configuration.

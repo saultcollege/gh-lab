@@ -109,7 +109,7 @@ courses whose organizations may not be locked down.
    not a fork, fail when it is, skip when the repository could not be read.
 5. [+] Reword the `not-course-org` remediation and its skip reason, both of
    which name `template-repo` today.
-6. [ ] Remove `normalise_repo_ref` if tasks 1–5 leave it unused, checking the
+6. [+] Remove `normalise_repo_ref` if tasks 1–5 leave it unused, checking the
    invite commands and the tests before deleting it.
 7. [+] Update `tests/commands/test_setup_check.py`: drop the template cases,
    including the one at line 157 that asserts the defect.
