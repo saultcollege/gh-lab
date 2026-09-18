@@ -64,27 +64,22 @@ class SendReport:
 
     Attributes:
         org: The organization people were invited to.
-        source: The course configuration they came from.
+        source: The public course configuration the faculty came from.
+        roster_source: The private roster the students came from.
         roster: Everyone the command intended to invite, in order.
         results: What happened to each of them.
         dry_run: Whether the invitations were only described, not sent.
         skipped_self: The roster entry for whoever ran the command, when they
             were on it. They are never invited; see :func:`set_self_aside`.
-        roster_source: The private roster the students came from, when one was
-            read. ``None`` when the configuration held them itself.
-        roster_error: Why the private roster was not read, when it was not.
-            Reported rather than swallowed, so that a mistyped repository name
-            does not look like a course with nobody enrolled.
     """
 
     org: str
     source: str
+    roster_source: str = ""
     roster: tuple[Person, ...] = ()
     results: tuple[InviteResult, ...] = ()
     dry_run: bool = False
     skipped_self: Person | None = None
-    roster_source: str | None = None
-    roster_error: str | None = None
 
     @property
     def invited(self) -> tuple[InviteResult, ...]:
@@ -107,20 +102,27 @@ class SendReport:
         return tuple(result for result in self.results if result.outcome is outcome)
 
 
-def build_roster(config: CourseConfig) -> tuple[Person, ...]:
-    """Everyone named in a course configuration, faculty first.
+def build_roster(
+    config: CourseConfig,
+    students: Sequence[Person] = (),
+) -> tuple[Person, ...]:
+    """Everyone on a course, faculty first.
 
-    Nobody is invited twice. A handle repeated within an array, or appearing in
-    both arrays because a teaching assistant is also enrolled, is one person and
-    one invitation; GitHub handles are compared without regard to case, as they
-    are elsewhere in this project.
+    The two arrive from two files — faculty from the public course
+    configuration, students from the private roster beside it — and are joined
+    here rather than at either source.
+
+    Nobody is invited twice. A handle repeated within a list, or appearing in
+    both because a teaching assistant is also enrolled, is one person and one
+    invitation; GitHub handles are compared without regard to case, as they are
+    elsewhere in this project.
 
     Pure: takes already-parsed configuration and returns plain data.
     """
     roster: list[Person] = []
     seen: set[str] = set()
 
-    for person in (*config.faculty, *config.students):
+    for person in (*config.faculty, *students):
         handle = person.github.casefold()
 
         if handle in seen:
@@ -214,24 +216,6 @@ def load_course_config(reference: CourseConfigRef) -> CourseConfig:
     return parse_course_config(data, source=str(reference))
 
 
-@dataclass(frozen=True)
-class LoadedConfig:
-    """A course configuration, and which files it was actually assembled from.
-
-    Attributes:
-        config: Faculty from the primary file, students from whichever file
-            supplied them.
-        source: The reference the command was given.
-        roster_source: The private roster, when one was read.
-        roster_error: Why the private roster was not read, when it was not.
-    """
-
-    config: CourseConfig
-    source: str
-    roster_source: str | None = None
-    roster_error: str | None = None
-
-
 def load_students(reference: CourseConfigRef) -> tuple[Person, ...]:
     """Fetch and parse a private roster.
 
@@ -249,43 +233,6 @@ def load_students(reference: CourseConfigRef) -> tuple[Person, ...]:
         raise ConfigError(f"{reference} is not valid JSON: {error}") from error
 
     return parse_roster(data, source=str(reference))
-
-
-def load_roster(reference: CourseConfigRef) -> LoadedConfig:
-    """Read a course configuration and the private roster beside it.
-
-    Students are held apart from faculty so that the faculty list can be
-    public; see :func:`private_counterpart`. The private file is optional, and
-    failing to read it is not fatal: a course still keeping everyone in one
-    file behaves exactly as it did before, because that file's own ``students``
-    are used instead.
-
-    Which files were read is recorded rather than inferred, so that a mistyped
-    repository name is reported as such instead of looking like a course with
-    nobody enrolled.
-
-    Raises:
-        AdapterError: The primary file could not be fetched.
-        ConfigError: The primary file is not a usable configuration.
-    """
-    config = load_course_config(reference)
-    private = private_counterpart(reference)
-
-    if private == reference:
-        return LoadedConfig(config=config, source=str(reference))
-
-    try:
-        students = load_students(private)
-    except (AdapterError, ConfigError) as error:
-        return LoadedConfig(
-            config=config, source=str(reference), roster_error=str(error)
-        )
-
-    return LoadedConfig(
-        config=replace(config, students=students),
-        source=str(reference),
-        roster_source=str(private),
-    )
 
 
 def invite_everyone(org: str, roster: Sequence[Person]) -> tuple[InviteResult, ...]:
@@ -318,27 +265,37 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
     Whoever is running the command is never invited, even when the course
     configuration lists them.
 
+    Two files are read: the public configuration named on the command line for
+    the faculty, and the private roster beside it for the students. Both are
+    required, and a failure to read either stops the command — a course whose
+    roster cannot be read is not a course with nobody enrolled.
+
     Raises:
-        AdapterError: The course configuration could not be fetched, or gh could
-            not say who is signed in. The second is fatal rather than ignored:
-            without knowing who is running this, the command cannot tell that it
-            is about to act on them.
-        ConfigError: The reference was malformed, or the file it named was not a
-            usable course configuration.
+        AdapterError: Either file could not be fetched, or gh could not say who
+            is signed in. The last is fatal rather than ignored: without knowing
+            who is running this, the command cannot tell that it is about to act
+            on them.
+        ConfigError: The reference was malformed, or a file it named was not
+            usable.
     """
     reference = parse_course_config_ref(config_file, CONFIG_FILE_OPTION)
-    loaded = load_roster(reference)
-    roster, you = set_self_aside(build_roster(loaded.config), github_cli.current_user())
+    private = private_counterpart(reference)
+
+    config = load_course_config(reference)
+    students = load_students(private)
+
+    roster, you = set_self_aside(
+        build_roster(config, students), github_cli.current_user()
+    )
 
     return SendReport(
         org=reference.owner,
-        source=loaded.source,
+        source=str(reference),
+        roster_source=str(private),
         roster=roster,
         results=() if dry_run else invite_everyone(reference.owner, roster),
         dry_run=dry_run,
         skipped_self=you,
-        roster_source=loaded.roster_source,
-        roster_error=loaded.roster_error,
     )
 
 

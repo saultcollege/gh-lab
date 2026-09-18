@@ -190,19 +190,16 @@ def render_results(report: SendReport) -> str:
 
 
 def _sources(report: SendReport) -> list[str]:
-    """Name every file the roster was assembled from.
+    """Name both files the roster was assembled from.
 
-    Students live in a private roster beside the public configuration, so there
-    are usually two. A roster that could not be read is said so plainly rather
-    than passed over: silently inviting only the faculty would look like a
-    course nobody has enrolled in.
+    Faculty come from the public configuration and students from the private
+    roster beside it, so naming only the one given on the command line would
+    account for half the list.
     """
     lines = [f"from {report.source}"]
 
     if report.roster_source:
         lines.append(f"and {report.roster_source}")
-    elif report.roster_error:
-        lines.append(f"{INDENT}no private roster was read ({report.roster_error})")
 
     return lines
 

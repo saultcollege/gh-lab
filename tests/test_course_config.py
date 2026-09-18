@@ -165,64 +165,55 @@ def test_superseded_properties_are_ignored():
 # --- students --------------------------------------------------------------
 
 
-def test_students_are_absent_by_default():
-    """A course configuration predating the invite commands must still parse."""
-    assert parse_course_config(COURSE_CONFIG, SOURCE).students == ()
+def test_a_roster_without_students_is_absent_rather_than_an_error():
+    """A course may be configured before anyone has enrolled."""
+    assert parse_roster({}, SOURCE) == ()
 
 
 def test_students_may_be_empty():
-    data = {**COURSE_CONFIG, "students": []}
-
-    assert parse_course_config(data, SOURCE).students == ()
+    assert parse_roster({"students": []}, SOURCE) == ()
 
 
 def test_parses_the_student_list():
-    data = {**COURSE_CONFIG, "students": [{"name": "Stu Dent", "github": "student"}]}
+    data = {"students": [{"name": "Stu Dent", "github": "student"}]}
 
-    (person,) = parse_course_config(data, SOURCE).students
+    (person,) = parse_roster(data, SOURCE)
 
     assert person.github == "student"
     assert person.display == "Stu Dent (@student)"
 
 
 def test_student_name_is_optional():
-    data = {**COURSE_CONFIG, "students": [{"github": "student"}]}
-
-    (person,) = parse_course_config(data, SOURCE).students
+    (person,) = parse_roster({"students": [{"github": "student"}]}, SOURCE)
 
     assert person.name is None
     assert person.display == "@student"
 
 
 def test_a_student_entry_without_github_names_its_position():
-    data = {**COURSE_CONFIG, "students": [{"github": "ok"}, {"name": "No Handle"}]}
+    data = {"students": [{"github": "ok"}, {"name": "No Handle"}]}
 
     with pytest.raises(ConfigError, match=r"students\[1\].*github"):
-        parse_course_config(data, SOURCE)
+        parse_roster(data, SOURCE)
 
 
 def test_a_student_entry_that_is_a_bare_string_is_rejected():
-    data = {**COURSE_CONFIG, "students": ["student"]}
-
     with pytest.raises(ConfigError, match=r"students\[0\]"):
-        parse_course_config(data, SOURCE)
+        parse_roster({"students": ["student"]}, SOURCE)
 
 
 def test_a_students_property_that_is_not_an_array_is_rejected():
     """Absent is fine; present and the wrong shape is a mistake worth naming."""
-    data = {**COURSE_CONFIG, "students": "student"}
-
     with pytest.raises(ConfigError, match="students"):
-        parse_course_config(data, SOURCE)
+        parse_roster({"students": "student"}, SOURCE)
 
 
-def test_faculty_and_students_are_kept_apart():
-    data = {"faculty": [{"github": "prof"}], "students": [{"github": "student"}]}
+def test_faculty_and_students_come_from_different_files():
+    faculty = parse_course_config({"faculty": [{"github": "prof"}]}, SOURCE).faculty
+    students = parse_roster({"students": [{"github": "student"}]}, SOURCE)
 
-    config = parse_course_config(data, SOURCE)
-
-    assert [person.github for person in config.faculty] == ["prof"]
-    assert [person.github for person in config.students] == ["student"]
+    assert [person.github for person in faculty] == ["prof"]
+    assert [person.github for person in students] == ["student"]
 
 
 # --- Where the private roster lives ------------------------------------------
@@ -246,11 +237,12 @@ def test_deriving_the_roster_keeps_the_owner_path_and_ref():
     assert derived.ref == "main"
 
 
-def test_a_reference_already_private_is_returned_unchanged():
-    """Otherwise a single-file course is sent to course-info-private-private."""
-    reference = CourseConfigRef("an-org", "course-info-private", "26f.json")
+def test_the_public_configuration_may_not_list_students():
+    """Publishing the roster is the mistake this arrangement exists to avoid."""
+    data = {"faculty": [], "students": [{"github": "student"}]}
 
-    assert private_counterpart(reference) is reference
+    with pytest.raises(ConfigError, match="public course configuration"):
+        parse_course_config(data, SOURCE)
 
 
 # --- Parsing a private roster ------------------------------------------------
@@ -268,7 +260,7 @@ def test_a_roster_need_not_name_any_faculty():
 
 
 def test_a_roster_ignores_faculty_it_does_carry():
-    """So that a course can split an existing file by copying it."""
+    """The faculty it belongs with are named in the public file."""
     data = {"faculty": [{"github": "prof"}], "students": [{"github": "student"}]}
 
     assert parse_roster(data, "roster") == (Person(github="student"),)

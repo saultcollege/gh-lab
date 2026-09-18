@@ -34,9 +34,12 @@ keep the student roster — which is — in a separate private repository.
   public file only; the private one is derived by appending `-private`. A
   second setting would be a second thing to get wrong, and would have to be
   threaded through `.lab/config.json`, which students can edit.
-* **The private file is optional.** A course keeping everyone in one private
-  file behaves exactly as before. This is what makes the change safe to land
-  before any course has migrated.
+* **Both files are required — a breaking change.** An earlier draft made the
+  private file optional so that a course keeping everyone in one file kept
+  working. That was dropped: the project is early enough that carrying a second
+  supported arrangement costs more in explanation and code paths than the
+  migration costs. Listing `students` in the public file is refused outright,
+  because it means the roster has been published.
 * **A missing roster is reported, not swallowed**, so that a mistyped
   repository name does not read as a course with nobody enrolled.
 * **Rejected: inlining the faculty list into `.lab/config.json`.** It needs

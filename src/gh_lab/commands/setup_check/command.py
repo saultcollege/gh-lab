@@ -203,10 +203,9 @@ def _course_reason(error: str | None, *, token_scoped: bool = False) -> str:
     GitHub answers 404 for a repository you cannot see as well as for one that
     does not exist, so a failure cannot tell the two apart.
 
-    The faculty list is meant to be public precisely so that this does not
-    happen — see ``private_counterpart`` in :mod:`gh_lab.course_config`. Both
-    messages therefore describe a course that has not been split yet, which is
-    the only arrangement in which either can occur.
+    The faculty list is public precisely so that this does not happen, so both
+    messages describe a course whose configuration is misplaced rather than a
+    student who has done something wrong.
 
     Args:
         error: What the failed read reported, if anything.
@@ -218,9 +217,9 @@ def _course_reason(error: str | None, *, token_scoped: bool = False) -> str:
     if token_scoped:
         base = (
             "the course configuration could not be read, because the token this "
-            "environment provides can only see this repository. That happens in "
-            "a Codespace when a course keeps its faculty list private, and is "
-            "nothing you have done wrong — tell your instructor"
+            "environment provides can only see this repository. In a Codespace "
+            "that means the course's faculty list is not public where it should "
+            "be, which is nothing you have done wrong — tell your instructor"
         )
     else:
         base = (
