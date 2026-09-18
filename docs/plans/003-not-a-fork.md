@@ -101,7 +101,7 @@ courses whose organizations may not be locked down.
 
 1. [+] Derive `LabConfig.course_org` from the `course-config` owner, replacing
    the `template_repo` derivation.
-2. [ ] Drop `template_repo` from `LabConfig` and stop reading `template-repo` in
+2. [+] Drop `template_repo` from `LabConfig` and stop reading `template-repo` in
    `parse_lab_config`.
 3. [+] Swap `templateRepository` for `isFork` in `REPO_FIELDS`, and
    `template_repo` for `is_fork` on `RepoFacts` and in `gather_facts`.
@@ -113,7 +113,7 @@ courses whose organizations may not be locked down.
    invite commands and the tests before deleting it.
 7. [+] Update `tests/commands/test_setup_check.py`: drop the template cases,
    including the one at line 157 that asserts the defect.
-8. [ ] Update `tests/commands/test_setup_check_config.py`: drop `template-repo`
+8. [+] Update `tests/commands/test_setup_check_config.py`: drop `template-repo`
    from the fixture and the required-field list, and re-point the two
    `course_org` tests at the course configuration owner.
 9. [+] Add tests for a fork failing, a non-fork passing, and an unreadable

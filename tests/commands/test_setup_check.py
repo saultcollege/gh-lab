@@ -26,13 +26,10 @@ from gh_lab.commands.setup_check.command import (
 from gh_lab.commands.setup_check.config import LabConfig
 from gh_lab.course_config import CourseConfig, CourseConfigRef, Person
 
-TEMPLATE_URL = "https://github.com/saultcollege-csd110/lab-1-template"
-
 CONFIG_REF = CourseConfigRef("saultcollege-csd110", "course-config", "26f.json")
 
 LAB_CONFIG = LabConfig(
     repo_name="csd110-lab-1",
-    template_repo=TEMPLATE_URL,
     course_config=CONFIG_REF,
 )
 
