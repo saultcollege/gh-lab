@@ -107,7 +107,7 @@ courses whose organizations may not be locked down.
    `template_repo` for `is_fork` on `RepoFacts` and in `gather_facts`.
 4. [+] Replace `_check_template` with `_check_fork`: pass when the repository is
    not a fork, fail when it is, skip when the repository could not be read.
-5. [ ] Reword the `not-course-org` remediation and its skip reason, both of
+5. [+] Reword the `not-course-org` remediation and its skip reason, both of
    which name `template-repo` today.
 6. [ ] Remove `normalise_repo_ref` if tasks 1–5 leave it unused, checking the
    invite commands and the tests before deleting it.

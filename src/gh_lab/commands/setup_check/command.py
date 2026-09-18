@@ -21,7 +21,6 @@ from gh_lab.course_config import (
     ConfigError,
     CourseConfig,
     CourseConfigRef,
-    normalise_repo_ref,
     parse_course_config,
 )
 
@@ -422,13 +421,6 @@ def _check_not_course_org(lab_config: LabConfig, facts: RepoFacts) -> Check:
     title = "Owned by you, not the course organization"
     course_org = lab_config.course_org
 
-    if course_org is None:
-        return _skipped(
-            "not-course-org",
-            title,
-            f"{LAB_CONFIG_PATH} does not name a valid 'template-repo'",
-        )
-
     if facts.owner is None:
         return _skipped(
             "not-course-org", title, facts.unavailable.get("repo", "unknown")
@@ -454,15 +446,10 @@ def _check_not_course_org(lab_config: LabConfig, facts: RepoFacts) -> Check:
             "Each student works in their own copy of the lab, created in their personal "
             "GitHub account. The course organization only holds the templates."
         ),
-        commands=(
-            (
-                f"gh repo create {lab_config.repo_name} --private "
-                f"--template {normalise_repo_ref(lab_config.template_repo)} --clone"
-            ),
-        ),
         note=(
-            "Run that from your own account. Ask your instructor before deleting the "
-            "repository you are in now."
+            "Make a new repository from your lab template, signed in as yourself so "
+            "that it is created in your own account, and move your work into it. Ask "
+            "your instructor before deleting the repository you are in now."
         ),
     )
 
