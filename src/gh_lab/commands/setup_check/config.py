@@ -24,7 +24,6 @@ from typing import Any
 from gh_lab.course_config import (
     ConfigError,
     CourseConfigRef,
-    normalise_repo_ref,
     optional_string,
     parse_course_config_ref,
     require_string,
@@ -56,15 +55,14 @@ class LabConfig:
     lab: str | None = None
 
     @property
-    def course_org(self) -> str | None:
-        """The organization that owns the lab template.
+    def course_org(self) -> str:
+        """The organization that runs the course.
 
         Student repositories must not be owned by it. It is not configured
-        separately because it is, by definition, the owner of ``template_repo``.
+        separately because it is, by definition, whoever owns the course
+        configuration.
         """
-        reference = normalise_repo_ref(self.template_repo)
-
-        return reference.split("/")[0] if reference else None
+        return self.course_config.owner
 
 
 def parse_lab_config(data: Any, source: str = LAB_CONFIG_PATH) -> LabConfig:

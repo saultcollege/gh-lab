@@ -63,12 +63,12 @@ def test_lab_config_must_be_an_object():
 # --- course-org is derived, not configured ---------------------------------
 
 
-def test_course_org_is_derived_from_the_template_owner():
-    """The course org is, by definition, whoever owns the lab template."""
+def test_course_org_is_derived_from_the_course_config_owner():
+    """The course org is, by definition, whoever owns the course config."""
     assert parse_lab_config(LAB_CONFIG).course_org == "saultcollege-csd110"
 
 
-def test_course_org_is_derived_from_the_shorthand_template_form():
-    data = {**LAB_CONFIG, "template-repo": "Some-Org/lab-1-template"}
+def test_course_org_follows_the_course_config_to_another_owner():
+    data = {**LAB_CONFIG, "course-config": "Some-Org/course-config/26f.json"}
 
-    assert parse_lab_config(data).course_org == "some-org"
+    assert parse_lab_config(data).course_org == "Some-Org"

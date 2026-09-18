@@ -99,7 +99,7 @@ courses whose organizations may not be locked down.
 
 ## Tasks
 
-1. [ ] Derive `LabConfig.course_org` from the `course-config` owner, replacing
+1. [+] Derive `LabConfig.course_org` from the `course-config` owner, replacing
    the `template_repo` derivation.
 2. [ ] Drop `template_repo` from `LabConfig` and stop reading `template-repo` in
    `parse_lab_config`.
