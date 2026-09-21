@@ -17,6 +17,8 @@ from gh_lab.course_config import (
     CourseConfig,
     CourseConfigRef,
     Person,
+    Roster,
+    Unidentified,
     parse_course_config,
     parse_course_config_ref,
     parse_roster,
@@ -71,6 +73,8 @@ class SendReport:
         dry_run: Whether the invitations were only described, not sent.
         skipped_self: The roster entry for whoever ran the command, when they
             were on it. They are never invited; see :func:`set_self_aside`.
+        unidentified: Students enrolled without a GitHub handle yet. Nothing can
+            be sent to them, so they are named rather than invited.
     """
 
     org: str
@@ -80,6 +84,7 @@ class SendReport:
     results: tuple[InviteResult, ...] = ()
     dry_run: bool = False
     skipped_self: Person | None = None
+    unidentified: tuple[Unidentified, ...] = ()
 
     @property
     def invited(self) -> tuple[InviteResult, ...]:
@@ -216,7 +221,7 @@ def load_course_config(reference: CourseConfigRef) -> CourseConfig:
     return parse_course_config(data, source=str(reference))
 
 
-def load_students(reference: CourseConfigRef) -> tuple[Person, ...]:
+def load_students(reference: CourseConfigRef) -> Roster:
     """Fetch and parse a private roster.
 
     Raises:
@@ -270,6 +275,10 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
     required, and a failure to read either stops the command — a course whose
     roster cannot be read is not a course with nobody enrolled.
 
+    A student whose GitHub handle is not known yet cannot be invited, but does
+    not stop anybody else being invited. They are carried into the report so
+    that the output can name them.
+
     Raises:
         AdapterError: Either file could not be fetched, or gh could not say who
             is signed in. The last is fatal rather than ignored: without knowing
@@ -282,10 +291,10 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
     private = private_counterpart(reference)
 
     config = load_course_config(reference)
-    students = load_students(private)
+    roster_file = load_students(private)
 
     roster, you = set_self_aside(
-        build_roster(config, students), github_cli.current_user()
+        build_roster(config, roster_file.students), github_cli.current_user()
     )
 
     return SendReport(
@@ -296,6 +305,7 @@ def run_send(*, config_file: str, dry_run: bool = False) -> SendReport:
         results=() if dry_run else invite_everyone(reference.owner, roster),
         dry_run=dry_run,
         skipped_self=you,
+        unidentified=roster_file.unidentified,
     )
 
 

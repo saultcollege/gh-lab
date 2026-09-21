@@ -156,8 +156,34 @@ wrote it.
 ### `students`
 
 Each entry has the same shape as a faculty entry: `github` is required, `name` is
-optional, and any other property is ignored. An entry without `github` is an
-error naming its position, exactly as for `faculty`.
+optional, and any other property is ignored.
+
+Unlike `faculty`, a student's handle may be stated as not yet known:
+
+```json
+{
+  "students": [
+    { "name": "Stu Dent", "github": "student" },
+    { "name": "Nott Yet", "github": null }
+  ]
+}
+```
+
+`null` or `""` means the student is enrolled but nobody has collected their
+handle — an ordinary state for a roster to be in at the start of a term. They are
+not invited, and `gh lab admin invites send` names them rather than dropping them
+quietly:
+
+```text
+not inviting 1 student with no GitHub handle yet:
+  Nott Yet (students[1])
+```
+
+The property itself is still required. Leaving it out altogether is an entry
+somebody has not finished writing, and only whoever wrote the file can say which
+of the two they meant, so it is an error naming its position — as it is for
+`faculty`, where a handle that is not known yet is a check that cannot be made
+rather than an invitation that can wait.
 
 The array itself is optional and defaults to empty, so a course can be set up
 before anyone has enrolled.

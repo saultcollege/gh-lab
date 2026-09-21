@@ -147,6 +147,10 @@ Re-running is safe. Someone already in the organization is reported as such
 rather than invited again, and one bad entry does not stop the rest of the
 roster, so a typo can be fixed and the command run again.
 
+A student whose GitHub handle is not known yet — written as `null` or `""` in the
+roster — is named in the output and left out of the invitations, rather than
+stopping the command. Collect the handle, put it in the roster, and run it again.
+
 Only an owner of the organization can invite people to it. If you are an
 administrator of its repositories but not an owner of the organization itself,
 this will report a 403.
