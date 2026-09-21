@@ -120,7 +120,11 @@ three jobs:
 
 * **checks** — asserts the `gh-lab` entry point is mode `100755` in the Git
   index, then runs `uv sync --locked` and the lint, format and test commands
-  listed above.
+  listed above. The suite is then run a second time under `uv run --locked
+  --python 3.11 pytest`: `uv` takes its interpreter from `.python-version`, so the first
+  run is 3.14 only, and the **extension** job exercises 3.11 without running a
+  test. Without the second run nothing would catch a construct that the
+  declared floor does not support.
 * **extension** (Linux) — installs the extension with `gh extension install .`
   on both the oldest and newest supported Python versions and asserts that
   `gh lab --help`, `gh lab --version`, bare `gh lab`, `gh lab setup-check` and
