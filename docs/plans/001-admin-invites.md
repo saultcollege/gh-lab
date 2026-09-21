@@ -1,6 +1,8 @@
-Status: DONE
-
 # Invite management commands
+
+## Status
+
+DONE
 
 Create faculty-facing subcommands to manage GitHub invites for courses: sending course org invites to students and faculty, and accepting repository invites from students.
 

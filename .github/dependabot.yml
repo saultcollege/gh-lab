@@ -1,0 +1,8 @@
+# The action pins in ci.yml drifted three to five major versions behind before
+# anyone noticed. Monthly is often enough for a workflow this small.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

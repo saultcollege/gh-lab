@@ -14,10 +14,13 @@ jobs:
     name: Lint, format and tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
+      # Pinned to an exact version rather than a floating major, as the two
+      # actions/* below are: setup-uv stopped publishing a major tag after v7,
+      # so `@v10` does not resolve. Dependabot bumps this line.
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
 
@@ -41,6 +44,13 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+      # uv resolves the interpreter from .python-version, so the step above is
+      # 3.14 only. The floor promised by pyproject.toml and the shim is 3.11,
+      # and the extension job below smoke-tests it but never runs a test, so
+      # without this nothing would catch a 3.12-only construct in src/.
+      - name: Tests on the minimum supported Python
+        run: uv run --locked --python 3.11 pytest
+
   extension:
     name: Extension smoke test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -54,9 +64,9 @@ jobs:
         # the upper bound is the version used for development.
         python-version: ["3.11", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -274,9 +284,9 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 

@@ -19,6 +19,10 @@
       "settings": {
         "terminal.integrated.env.linux": {
           "PATH": "${containerWorkspaceFolder}/.local/bin:${env:PATH}"
+        },
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
         }
       }
     }
