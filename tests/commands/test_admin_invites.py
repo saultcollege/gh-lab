@@ -39,7 +39,13 @@ from gh_lab.commands.admin_invites.command import (
     result_for,
     run_send,
 )
-from gh_lab.course_config import ConfigError, CourseConfig, Person
+from gh_lab.course_config import (
+    ConfigError,
+    CourseConfig,
+    Person,
+    Roster,
+    Unidentified,
+)
 
 CONFIG_REF = "saultcollege-csd217/course-info/config/26f.json"
 
@@ -49,6 +55,9 @@ OTHER = Person(github="other")
 
 COURSE_CONFIG = CourseConfig(faculty=(PROF,))
 STUDENTS = (STUDENT, OTHER)
+
+# A student who is enrolled but whose GitHub handle nobody has collected yet.
+NO_HANDLE = Unidentified(where="students[2]", name="No Handle")
 
 
 def send_parser() -> argparse.ArgumentParser:
@@ -92,7 +101,7 @@ def stub_github(monkeypatch, states=None, failing=(), signed_in_as="somebody-els
     return seen
 
 
-def stub_config(monkeypatch, config=COURSE_CONFIG, students=STUDENTS):
+def stub_config(monkeypatch, config=COURSE_CONFIG, students=STUDENTS, unidentified=()):
     """Answer both configuration fetches without touching the network.
 
     Answers who is signed in too, because run_send asks in order to leave them
@@ -100,12 +109,13 @@ def stub_config(monkeypatch, config=COURSE_CONFIG, students=STUDENTS):
 
     Args:
         config: What the public configuration holds.
-        students: What the private roster beside it holds.
+        students: Who the private roster beside it gives a handle for.
+        unidentified: Who it enrols without one.
     """
+    roster = Roster(students=tuple(students), unidentified=tuple(unidentified))
+
     monkeypatch.setattr(command_module, "load_course_config", lambda reference: config)
-    monkeypatch.setattr(
-        command_module, "load_students", lambda reference: tuple(students)
-    )
+    monkeypatch.setattr(command_module, "load_students", lambda reference: roster)
     monkeypatch.setattr(github_cli, "current_user", lambda: "somebody-else")
 
 
@@ -1192,7 +1202,7 @@ def test_the_roster_is_read_from_the_private_repository(monkeypatch):
     monkeypatch.setattr(
         command_module,
         "load_students",
-        lambda ref: (asked.append(str(ref)), STUDENTS)[1],
+        lambda ref: (asked.append(str(ref)), Roster(students=STUDENTS))[1],
     )
     stub_github(monkeypatch)
 
@@ -1210,3 +1220,109 @@ def test_someone_in_both_files_is_invited_once(monkeypatch):
 
     assert report.roster == (PROF, STUDENT)
     assert [username for _, username, _ in seen] == ["prof", "student"]
+
+
+# --- A student whose handle is not known yet ---------------------------------
+#
+# A roster is assembled at the start of a term, so an entry may be enrolled
+# before anyone has collected the handle. That is an ordinary state for the file
+# to be in, not a malformed file, and it must not stop the rest of the course
+# being invited.
+
+
+def test_a_student_without_a_handle_does_not_stop_the_rest(monkeypatch):
+    stub_config(monkeypatch, students=(STUDENT, OTHER), unidentified=(NO_HANDLE,))
+    seen = stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert report.roster == (PROF, STUDENT, OTHER)
+    assert [username for _, username, _ in seen] == ["prof", "student", "other"]
+
+
+def test_a_student_without_a_handle_is_carried_into_the_report(monkeypatch):
+    stub_config(monkeypatch, unidentified=(NO_HANDLE,))
+    stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF)
+
+    assert report.unidentified == (NO_HANDLE,)
+    assert report.ok
+
+
+def test_a_dry_run_reports_them_too(monkeypatch):
+    """A dry run is what faculty check the roster with before sending."""
+    stub_config(monkeypatch, unidentified=(NO_HANDLE,))
+    stub_github(monkeypatch)
+
+    report = run_send(config_file=CONFIG_REF, dry_run=True)
+
+    assert report.unidentified == (NO_HANDLE,)
+
+
+def test_they_are_named_in_the_results():
+    report = SendReport(
+        org="course-org",
+        source=CONFIG_REF,
+        roster=(PROF,),
+        results=(InviteResult(PROF, Outcome.INVITED),),
+        unidentified=(NO_HANDLE,),
+    )
+
+    output = shell.render_results(report)
+
+    assert "not inviting 1 student with no GitHub handle yet:" in output
+    assert "No Handle (students[2])" in output
+
+
+def test_they_are_named_in_a_dry_run():
+    report = SendReport(
+        org="course-org",
+        source=CONFIG_REF,
+        roster=(PROF,),
+        dry_run=True,
+        unidentified=(NO_HANDLE,),
+    )
+
+    assert "No Handle (students[2])" in shell.render_roster(report)
+
+
+def test_one_with_no_name_is_named_by_its_position_alone():
+    report = SendReport(
+        org="course-org",
+        source=CONFIG_REF,
+        unidentified=(Unidentified(where="students[4]"),),
+    )
+
+    assert "students[4]" in shell.render_results(report)
+
+
+def test_several_are_counted_together():
+    report = SendReport(
+        org="course-org",
+        source=CONFIG_REF,
+        unidentified=(NO_HANDLE, Unidentified(where="students[4]")),
+    )
+
+    assert "not inviting 2 students" in shell.render_results(report)
+
+
+def test_nothing_is_said_when_every_student_has_a_handle():
+    report = SendReport(org="course-org", source=CONFIG_REF, roster=(PROF,))
+
+    assert "no GitHub handle" not in shell.render_results(report)
+    assert "no GitHub handle" not in shell.render_roster(report)
+
+
+def test_skipping_a_student_is_not_a_failure(monkeypatch, capsys):
+    """The command did everything it could, so the exit code says so."""
+    report = SendReport(
+        org="course-org",
+        source=CONFIG_REF,
+        roster=(PROF,),
+        results=(InviteResult(PROF, Outcome.INVITED),),
+        unidentified=(NO_HANDLE,),
+    )
+
+    assert run_cli(monkeypatch, report=report) == 0
+    assert "No Handle (students[2])" in capsys.readouterr().out

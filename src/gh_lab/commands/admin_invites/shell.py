@@ -156,6 +156,7 @@ def render_roster(report: SendReport) -> str:
         f"Would invite {_count(len(report.roster))} to {report.org}",
         *_sources(report),
         *_skipped_self(report),
+        *_unidentified(report),
     ]
 
     if report.roster:
@@ -174,6 +175,7 @@ def render_results(report: SendReport) -> str:
         f"Inviting {_count(len(report.roster))} to {report.org}",
         *_sources(report),
         *_skipped_self(report),
+        *_unidentified(report),
     ]
 
     if report.results:
@@ -215,6 +217,25 @@ def _skipped_self(report: SendReport) -> list[str]:
     return [f"not inviting you, {report.skipped_self.display}"]
 
 
+def _unidentified(report: SendReport) -> list[str]:
+    """Name the students whose GitHub handle the roster does not know yet.
+
+    There is nothing to send them, but leaving them out silently would make the
+    count look like a misread roster. Each is named by where it sits in the
+    array, because an entry with no handle may have no name either, and the
+    position is what has to be edited to fix it.
+    """
+    if not report.unidentified:
+        return []
+
+    counted = _students(len(report.unidentified))
+
+    return [
+        f"not inviting {counted} with no GitHub handle yet:",
+        *(f"{INDENT}{student.display}" for student in report.unidentified),
+    ]
+
+
 def _summary(report: SendReport) -> str:
     """One line counting each outcome, naming only the ones that occurred."""
     counts = [
@@ -231,6 +252,11 @@ def _summary(report: SendReport) -> str:
 def _count(total: int) -> str:
     """``1 person`` or ``3 people``."""
     return "1 person" if total == 1 else f"{total} people"
+
+
+def _students(total: int) -> str:
+    """``1 student`` or ``3 students``."""
+    return "1 student" if total == 1 else f"{total} students"
 
 
 def handle_send(args: argparse.Namespace) -> int:

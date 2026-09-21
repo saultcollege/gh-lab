@@ -14,6 +14,7 @@ Everything here is pure: parsing takes already-loaded data and returns
 structured values, so it can be tested without a repository or the network.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -47,6 +48,33 @@ def optional_string(data: dict[str, Any], key: str, source: str) -> str | None:
     return value.strip()
 
 
+def declared_string(data: dict[str, Any], key: str, source: str) -> str | None:
+    """Read a property that must be stated but whose value may be unknown.
+
+    Unlike :func:`optional_string`, the key itself is required: an absent key is
+    an entry somebody has not finished writing, while ``null`` or an empty
+    string is somebody saying the value is not known yet. Only whoever wrote the
+    file can tell those apart, so the file has to say which it means.
+
+    Returns:
+        The value, or ``None`` where it is not known yet.
+    """
+    if key not in data:
+        raise ConfigError(
+            f"{source} is missing a {key!r} value. Use null if it is not known yet"
+        )
+
+    value = data[key]
+
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        raise ConfigError(f"{source} has an invalid {key!r} value")
+
+    return value.strip() or None
+
+
 @dataclass(frozen=True)
 class Person:
     """Someone named in the course configuration.
@@ -63,6 +91,28 @@ class Person:
     def display(self) -> str:
         """A human-readable identification, e.g. ``Bob Bob (@bobber24)``."""
         return f"{self.name} (@{self.github})" if self.name else f"@{self.github}"
+
+
+@dataclass(frozen=True)
+class Unidentified:
+    """Someone on a roster whose GitHub handle is not yet known.
+
+    Not a :class:`Person`, because there is nothing to invite: everything that
+    acts on a person acts on their handle. Where they sat in the array is what
+    identifies them instead, and is what whoever fixes the file needs.
+
+    Attributes:
+        where: The array and position they were read from, ``students[3]``.
+        name: Their real name, when the entry gave one.
+    """
+
+    where: str
+    name: str | None = None
+
+    @property
+    def display(self) -> str:
+        """A human-readable identification, e.g. ``Stu Dent (students[3])``."""
+        return f"{self.name} ({self.where})" if self.name else self.where
 
 
 @dataclass(frozen=True)
@@ -106,6 +156,22 @@ class CourseConfig:
     """
 
     faculty: tuple[Person, ...]
+
+
+@dataclass(frozen=True)
+class Roster:
+    """The contents of the private roster document.
+
+    Both halves travel together because the parse is the only place that can
+    tell them apart: an entry either gives a handle or says it has none yet.
+
+    Attributes:
+        students: Everyone whose handle is known, and who can be invited.
+        unidentified: Everyone enrolled whose handle is not known yet.
+    """
+
+    students: tuple[Person, ...] = ()
+    unidentified: tuple[Unidentified, ...] = ()
 
 
 def parse_course_config_ref(value: str, source: str) -> CourseConfigRef:
@@ -181,31 +247,48 @@ def _parse_url_ref(text: str, source: str) -> CourseConfigRef:
     )
 
 
-def parse_people(entries: Any, source: str, key: str) -> tuple[Person, ...]:
-    """Build a list of people from the ``key`` array of a course config.
+def _entries(
+    entries: Any, source: str, key: str
+) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Walk the ``key`` array of a course config, checking its shape.
 
-    Each entry is an object; only its ``github`` property is required. Errors
-    name the offending array and index, because the person who has to fix the
-    file is the faculty member who wrote it.
+    Yields each entry with the position it was read from, which is what errors
+    and reports name: the person who has to fix the file is the faculty member
+    who wrote it, and an entry naming nobody is identified by nothing else.
+
+    The position comes in both spellings, because they are read in different
+    places. ``students[3]`` alone identifies an entry in a report that has
+    already named the file it came from; an error message has named nothing, so
+    it carries the file too.
     """
     if not isinstance(entries, list):
         raise ConfigError(f"{source} is missing a {key!r} array")
 
-    people = []
     for index, entry in enumerate(entries):
-        where = f"{source} {key}[{index}]"
+        position = f"{key}[{index}]"
+        where = f"{source} {position}"
 
         if not isinstance(entry, dict):
             raise ConfigError(f"{where} must be an object with a 'github' property")
 
-        people.append(
-            Person(
-                github=require_string(entry, "github", where),
-                name=optional_string(entry, "name", where),
-            )
-        )
+        yield position, where, entry
 
-    return tuple(people)
+
+def parse_people(entries: Any, source: str, key: str) -> tuple[Person, ...]:
+    """Build a list of people from the ``key`` array of a course config.
+
+    Each entry is an object and must give a ``github`` handle. Used for
+    ``faculty``, where a missing handle is a check that cannot be made rather
+    than an invitation that can wait; students are read by :func:`parse_roster`,
+    which allows a handle that is not known yet.
+    """
+    return tuple(
+        Person(
+            github=require_string(entry, "github", where),
+            name=optional_string(entry, "name", where),
+        )
+        for _, where, entry in _entries(entries, source, key)
+    )
 
 
 def parse_course_config(data: Any, source: str) -> CourseConfig:
@@ -232,7 +315,7 @@ def parse_course_config(data: Any, source: str) -> CourseConfig:
     return CourseConfig(faculty=parse_people(data.get("faculty"), source, "faculty"))
 
 
-def parse_roster(data: Any, source: str) -> tuple[Person, ...]:
+def parse_roster(data: Any, source: str) -> Roster:
     """The enrolled students from a private roster document.
 
     A roster holds only ``students``; the faculty it belongs with are named in
@@ -240,10 +323,31 @@ def parse_roster(data: Any, source: str) -> tuple[Person, ...]:
 
     An absent ``students`` is an empty roster rather than an error: a course
     may be configured before anyone has enrolled.
+
+    Every entry must state a ``github`` property, but a ``null`` or empty one
+    says the handle is not known yet, which is an ordinary state for a roster
+    to be in at the start of a term. Those students are separated out as
+    :class:`Unidentified` rather than rejected, so that one unfinished entry
+    does not stop the rest of the course being invited.
     """
     if not isinstance(data, dict):
         raise ConfigError(f"{source} must contain a JSON object")
 
     students = data.get("students")
 
-    return () if students is None else parse_people(students, source, "students")
+    if students is None:
+        return Roster()
+
+    known: list[Person] = []
+    unidentified: list[Unidentified] = []
+
+    for position, where, entry in _entries(students, source, "students"):
+        github = declared_string(entry, "github", where)
+        name = optional_string(entry, "name", where)
+
+        if github is None:
+            unidentified.append(Unidentified(where=position, name=name))
+        else:
+            known.append(Person(github=github, name=name))
+
+    return Roster(students=tuple(known), unidentified=tuple(unidentified))

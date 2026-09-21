@@ -6,6 +6,7 @@ from gh_lab.course_config import (
     ConfigError,
     CourseConfigRef,
     Person,
+    Unidentified,
     parse_course_config,
     parse_course_config_ref,
     parse_roster,
@@ -138,34 +139,98 @@ def test_superseded_properties_are_ignored():
 
 def test_a_roster_without_students_is_absent_rather_than_an_error():
     """A course may be configured before anyone has enrolled."""
-    assert parse_roster({}, SOURCE) == ()
+    assert parse_roster({}, SOURCE).students == ()
 
 
 def test_students_may_be_empty():
-    assert parse_roster({"students": []}, SOURCE) == ()
+    assert parse_roster({"students": []}, SOURCE).students == ()
 
 
 def test_parses_the_student_list():
     data = {"students": [{"name": "Stu Dent", "github": "student"}]}
 
-    (person,) = parse_roster(data, SOURCE)
+    (person,) = parse_roster(data, SOURCE).students
 
     assert person.github == "student"
     assert person.display == "Stu Dent (@student)"
 
 
 def test_student_name_is_optional():
-    (person,) = parse_roster({"students": [{"github": "student"}]}, SOURCE)
+    (person,) = parse_roster({"students": [{"github": "student"}]}, SOURCE).students
 
     assert person.name is None
     assert person.display == "@student"
 
 
-def test_a_student_entry_without_github_names_its_position():
+def test_a_student_entry_without_a_github_property_names_its_position():
+    """Absent is an unfinished entry, and says nothing about what was meant."""
     data = {"students": [{"github": "ok"}, {"name": "No Handle"}]}
 
     with pytest.raises(ConfigError, match=r"students\[1\].*github"):
         parse_roster(data, SOURCE)
+
+
+def test_the_missing_github_message_says_how_to_state_an_unknown_handle():
+    """The faculty member who meets this is the one who deleted the line."""
+    with pytest.raises(ConfigError, match="null"):
+        parse_roster({"students": [{"name": "No Handle"}]}, SOURCE)
+
+
+@pytest.mark.parametrize("handle", [None, "", "   "])
+def test_a_student_handle_that_is_not_known_yet_is_not_an_error(handle):
+    """An enrolled student whose handle nobody has collected yet."""
+    data = {"students": [{"name": "Stu Dent", "github": handle}]}
+
+    roster = parse_roster(data, SOURCE)
+
+    assert roster.students == ()
+    assert roster.unidentified == (Unidentified(where="students[0]", name="Stu Dent"),)
+
+
+def test_an_unidentified_student_is_named_by_its_position():
+    """There may be no name either, and the position is what has to be edited."""
+    data = {"students": [{"github": "ok"}, {"github": None}]}
+
+    (student,) = parse_roster(data, SOURCE).unidentified
+
+    assert student.name is None
+    assert student.display == "students[1]"
+
+
+def test_an_unidentified_student_with_a_name_is_named_by_both():
+    data = {"students": [{"name": "Stu Dent", "github": None}]}
+
+    (student,) = parse_roster(data, SOURCE).unidentified
+
+    assert student.display == "Stu Dent (students[0])"
+
+
+def test_students_with_and_without_a_handle_are_kept_apart():
+    data = {
+        "students": [
+            {"github": "student"},
+            {"name": "No Handle", "github": None},
+            {"github": "other"},
+        ]
+    }
+
+    roster = parse_roster(data, SOURCE)
+
+    assert [person.github for person in roster.students] == ["student", "other"]
+    assert [student.where for student in roster.unidentified] == ["students[1]"]
+
+
+def test_a_student_handle_that_is_not_a_string_is_rejected():
+    """Nothing about a number says the handle is not known yet."""
+    with pytest.raises(ConfigError, match=r"students\[0\].*github"):
+        parse_roster({"students": [{"github": 42}]}, SOURCE)
+
+
+@pytest.mark.parametrize("handle", [None, "", "   "])
+def test_a_faculty_entry_still_needs_a_handle(handle):
+    """A faculty member with no handle is a check that cannot be made."""
+    with pytest.raises(ConfigError, match=r"faculty\[0\].*github"):
+        parse_course_config({"faculty": [{"github": handle}]}, SOURCE)
 
 
 def test_a_student_entry_that_is_a_bare_string_is_rejected():
@@ -181,7 +246,7 @@ def test_a_students_property_that_is_not_an_array_is_rejected():
 
 def test_faculty_and_students_come_from_different_files():
     faculty = parse_course_config({"faculty": [{"github": "prof"}]}, SOURCE).faculty
-    students = parse_roster({"students": [{"github": "student"}]}, SOURCE)
+    students = parse_roster({"students": [{"github": "student"}]}, SOURCE).students
 
     assert [person.github for person in faculty] == ["prof"]
     assert [person.github for person in students] == ["student"]
@@ -220,25 +285,28 @@ def test_the_public_configuration_may_not_list_students():
 
 
 def test_a_roster_holds_students():
-    assert parse_roster({"students": [{"github": "student"}]}, "roster") == (
+    assert parse_roster({"students": [{"github": "student"}]}, "roster").students == (
         Person(github="student"),
     )
 
 
 def test_a_roster_need_not_name_any_faculty():
     """The faculty it belongs with are in the public file, not this one."""
-    assert parse_roster({"students": []}, "roster") == ()
+    assert parse_roster({"students": []}, "roster").students == ()
 
 
 def test_a_roster_ignores_faculty_it_does_carry():
     """The faculty it belongs with are named in the public file."""
     data = {"faculty": [{"github": "prof"}], "students": [{"github": "student"}]}
 
-    assert parse_roster(data, "roster") == (Person(github="student"),)
+    assert parse_roster(data, "roster").students == (Person(github="student"),)
 
 
 def test_a_roster_without_students_is_empty_rather_than_an_error():
-    assert parse_roster({}, "roster") == ()
+    roster = parse_roster({}, "roster")
+
+    assert roster.students == ()
+    assert roster.unidentified == ()
 
 
 def test_a_roster_must_be_an_object():
