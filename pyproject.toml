@@ -3,6 +3,8 @@ name = "gh-lab"
 version = "0.1.0"
 description = "A GitHub CLI extension for managing and validating programming lab repositories."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Rodney Martin", email = "rodney.martin@saultcollege.ca" }
 ]
