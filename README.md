@@ -37,10 +37,6 @@ Apply it:
 `gh` also checks for extension updates on its own and prints a notice at most
 once a day. Set `GH_NO_EXTENSION_UPDATE_NOTIFIER=1` to suppress that.
 
-To install a specific version instead of tracking the latest:
-
-    gh extension install saultcollege/gh-lab --pin v0.1.0
-
 ## Uninstall
 
     gh extension remove lab
@@ -91,7 +87,8 @@ set up, provided your course publishes its faculty list — see
 Options:
 
     --format {text,json}     Output format (default: text)
-    --color {auto,never,always}
+    --color {auto,always,never}
+                             When to colourise output (default: auto)
 
 The repository it checks against is described by `.lab/config.json`, written by
 your lab template. See [docs/configuration.md](docs/configuration.md) if you are
@@ -187,7 +184,7 @@ to filter on.
 If `gh lab` reports that it cannot find a suitable Python, point it at one
 explicitly:
 
-    GH_LAB_PYTHON=/usr/local/bin/python3.12 gh lab --help
+    GH_LAB_PYTHON=/usr/bin/python3 gh lab --help
 
 ## Development
 
